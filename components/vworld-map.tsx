@@ -89,6 +89,11 @@ interface VworldMapProps {
   bundle: MountainBundle | null;
   /** 선택된 산의 좌표. 코스가 없을 때 카메라를 보낼 곳. */
   focus: { lon: number; lat: number } | null;
+  /**
+   * 2D 지도가 지금 보고 있는 영역. 3D 를 켜는 순간 이 화면을 그대로 이어받는다.
+   * 없으면 선택한 산 전체 범위로 맞춘다.
+   */
+  viewport?: { bounds: [number, number, number, number]; zoom: number } | null;
   /** 화면에 보이는지 여부. 숨겼다 다시 보일 때 캔버스 크기를 다시 잡아야 한다. */
   active: boolean;
 }
@@ -150,6 +155,7 @@ export function VworldMap({
   active,
   selectedCourseId = null,
   showBoundary = false,
+  viewport = null,
 }: VworldMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const vwRef = useRef<VworldNamespace | null>(null);
@@ -162,6 +168,11 @@ export function VworldMap({
   /** ready 직후 첫 카메라 이동이 삼켜지는 경우가 있어 한 번만 재시도한다. */
   const firstMoveDoneRef = useRef(false);
   const boundaryRef = useRef<unknown>(null);
+  /*
+   * 2D 뷰포트는 사용자가 지도를 움직일 때마다 바뀐다. 그때마다 3D 카메라를 옮기면
+   * 숨어 있는 지도가 계속 흔들린다. 최신 값만 들고 있다가 3D 를 켜는 순간에만 읽는다.
+   */
+  const viewportRef = useRef(viewport);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [message, setMessage] = useState<string | null>(null);
 
@@ -238,6 +249,35 @@ export function VworldMap({
       drawnRef.current = drawTrails(vw, lines, selectedCourseRef.current, heightM);
     });
   }, [status]);
+
+  useEffect(() => {
+    viewportRef.current = viewport;
+  }, [viewport]);
+
+  /*
+   * 3D 를 켜는 순간 2D 가 보던 영역으로 카메라를 옮긴다.
+   *
+   * 이게 없으면 관악산처럼 코스가 넓게 퍼진 산에서 2D 로 확대해 보다가 3D 를 켜면
+   * 산 전체 범위로 줌아웃돼 버린다. 사용자가 보던 맥락이 사라진다.
+   */
+  useEffect(() => {
+    if (!active || status !== 'ready') return;
+    const vw = vwRef.current;
+    const map = mapRef.current;
+    const view = viewportRef.current;
+    if (!vw || !map || !view) return;
+
+    const [west, south, east, north] = view.bounds;
+    const spanDeg = Math.max(east - west, north - south);
+    const altM = Math.min(400_000, Math.max(800, (spanDeg * METERS_PER_DEGREE) / 2.6));
+
+    map.moveTo(
+      new vw.CameraPosition(
+        new vw.CoordZ((west + east) / 2, (south + north) / 2, altM),
+        new vw.Direction(0, MOUNTAIN_TILT_DEG, 0),
+      ),
+    );
+  }, [active, status]);
 
   /* 행정경계 오버레이 */
   useEffect(() => {

@@ -575,6 +575,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
                 active={vworld}
                 selectedCourseId={selectedCourseId}
                 showBoundary={vworldBoundary}
+                viewport={view}
               />
             </div>
           )}
