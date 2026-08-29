@@ -30,9 +30,9 @@ const METERS_PER_DEGREE = 111_000;
  * 덮어버려 오히려 선이 사라진다(실제로 그렇게 됐다).
  * 그래서 색을 진하게 만들고 선을 굵히는 쪽으로 간다.
  */
-const LINE_WIDTH = 8;
+const LINE_WIDTH = 16;
 /** 코스를 하나 고르면 그 코스만 굵게, 나머지는 흐리게. */
-const SELECTED_LINE_WIDTH = 13;
+const SELECTED_LINE_WIDTH = 26;
 const DIMMED_ALPHA = 120;
 
 /**
