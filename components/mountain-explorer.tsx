@@ -1,10 +1,22 @@
 'use client';
 
-import { Box, Globe, Mountain, Route, Search, Thermometer, TreePine, TrendingUp } from 'lucide-react';
+import {
+  Box,
+  Globe,
+  List,
+  Mountain,
+  Route,
+  Search,
+  Thermometer,
+  TreePine,
+  TrendingUp,
+  X,
+} from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { DataNotice } from '@/components/data-notice';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -57,6 +69,8 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
   const [showWeather, setShowWeather] = useState(false);
   const [weather, setWeather] = useState<WeatherStation[]>([]);
   const [observedAt, setObservedAt] = useState<string | null>(null);
+  // 모바일에서는 사이드바가 지도를 덮는 시트로 뜬다. lg 이상에서는 이 상태를 쓰지 않는다.
+  const [listOpen, setListOpen] = useState(false);
   const [threeD, setThreeD] = useState(false);
   const [vworld, setVworld] = useState(false);
   /**
@@ -278,6 +292,8 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
 
   const handleSelect = useCallback((name: string) => {
     setSelected((current) => (current === name ? null : name));
+    // 모바일에서 목록을 고른 뒤 시트가 지도를 계속 가리면 고른 의미가 없다.
+    setListOpen(false);
   }, []);
 
   const handleDataset = useCallback((next: Dataset) => {
@@ -350,6 +366,15 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
           {filtered.length.toLocaleString()}곳
         </span>
         <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="lg:hidden"
+            onClick={() => setListOpen(true)}
+            aria-label="산 목록 열기"
+          >
+            <List className="size-4" />
+          </Button>
           {showWeather && observedAt && (
             <span className="text-muted-foreground hidden text-xs md:inline">
               {observedAt.slice(5, 16)} 관측 · {weather.length}지점
@@ -403,7 +428,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
             onChange={(event) => setQuery(event.target.value)}
             placeholder="산 이름 검색"
             aria-label="산 이름 검색"
-            className="border-border bg-background focus:ring-ring w-44 rounded-md border py-1.5 pr-3 pl-8 text-sm focus:ring-2 focus:outline-none sm:w-56"
+            className="border-border bg-background focus:ring-ring w-32 rounded-md border py-1.5 pr-3 pl-8 text-sm focus:ring-2 focus:outline-none sm:w-56"
           />
         </div>
       </header>
@@ -415,7 +440,35 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
       )}
 
       <div className="flex min-h-0 flex-1">
-        <nav className="border-border hidden w-64 shrink-0 border-r lg:block">
+        {/* 모바일에서 시트를 닫기 위한 배경. lg 이상에서는 렌더하지 않는다. */}
+        {listOpen && (
+          <button
+            type="button"
+            aria-label="목록 닫기"
+            onClick={() => setListOpen(false)}
+            className="bg-background/60 absolute inset-0 z-30 backdrop-blur-sm lg:hidden"
+          />
+        )}
+
+        <nav
+          className={cn(
+            'border-border bg-background w-64 shrink-0 border-r',
+            // lg 미만에서는 지도 위로 떠오르는 시트. 닫히면 화면 밖으로 밀어낸다.
+            'absolute inset-y-0 left-0 z-40 transition-transform lg:static lg:z-auto lg:translate-x-0',
+            listOpen ? 'translate-x-0' : '-translate-x-full',
+          )}
+        >
+          <div className="border-border flex items-center justify-between border-b px-4 py-2 lg:hidden">
+            <span className="text-sm font-medium">{filtered.length.toLocaleString()}곳</span>
+            <button
+              type="button"
+              onClick={() => setListOpen(false)}
+              aria-label="목록 닫기"
+              className="hover:bg-accent text-muted-foreground rounded-md p-1"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
           <ScrollArea className="h-full">
             <ul className="divide-border/60 divide-y">
               {visible.map((mountain) => (
@@ -468,6 +521,13 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
         </nav>
 
         <main className="relative min-w-0 flex-1">
+          {/* 안전 고지. 국립공원 레이어를 켰을 때만 강조된다 — 2017년 기준 통제 표시를
+              현재 상황으로 오독하는 순간이 실제로 위험하기 때문이다. */}
+          <DataNotice
+            parkLayerActive={showParks}
+            className="absolute inset-x-4 bottom-4 z-20 mx-auto max-w-2xl md:inset-x-auto md:left-1/2 md:w-[36rem] md:-translate-x-1/2"
+          />
+
           {/* 두 지도를 겹쳐 두고 표시만 바꾼다. maplibre 를 언마운트하면 뷰포트와 타일 캐시를 잃는다. */}
           <div className={cn('size-full', vworld && 'hidden')}>
             <TrailMap
@@ -526,7 +586,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
             </div>
           )}
 
-          <div className="bg-card/85 border-border pointer-events-none absolute bottom-8 left-4 z-10 rounded-lg border p-3 text-xs backdrop-blur">
+          <div className="bg-card/85 border-border pointer-events-none absolute bottom-24 left-4 z-10 hidden rounded-lg border p-3 text-xs backdrop-blur sm:bottom-8 sm:block">
             <p className="text-muted-foreground mb-2 font-medium">코스 난이도 (누적 상승)</p>
             {showParks && npStats && (
               <div className="border-border/60 mb-2 border-b pb-2">
