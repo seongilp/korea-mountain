@@ -226,3 +226,48 @@ export function loadVworld(apiKey: string): Promise<VworldNamespace> {
   }
   return booting;
 }
+
+/* ------------------------------------------------------------------ */
+/* 카메라 고도 관찰                                                     */
+/* ------------------------------------------------------------------ */
+
+interface CesiumCamera {
+  positionCartographic?: { height?: number };
+  moveEnd?: {
+    addEventListener(cb: () => void): () => void;
+    removeEventListener(cb: () => void): void;
+  };
+}
+
+function cesiumCamera(): CesiumCamera | null {
+  const viewer = (window as unknown as { ws3d?: { viewer?: { camera?: CesiumCamera } } }).ws3d
+    ?.viewer;
+  return viewer?.camera ?? null;
+}
+
+/** 현재 카메라의 지면 위 고도(m). 알 수 없으면 null. */
+export function cameraHeightM(): number | null {
+  const height = cesiumCamera()?.positionCartographic?.height;
+  return typeof height === 'number' && Number.isFinite(height) ? height : null;
+}
+
+/**
+ * 카메라 이동이 끝날 때마다 고도를 알려준다. 해제 함수를 돌려준다.
+ *
+ * 브이월드는 자체 카메라 API 를 노출하지 않아 내부 Cesium 뷰어를 직접 본다.
+ * 내부 구조에 기대는 것이라 없으면 조용히 아무것도 하지 않는다 —
+ * 선 굵기 조절은 있으면 좋은 기능이지 없으면 지도가 안 뜨는 종류가 아니다.
+ */
+export function watchCameraHeight(onChange: (heightM: number) => void): () => void {
+  const camera = cesiumCamera();
+  const moveEnd = camera?.moveEnd;
+  if (!camera || !moveEnd) return () => {};
+
+  const handler = () => {
+    const height = camera.positionCartographic?.height;
+    if (typeof height === 'number' && Number.isFinite(height)) onChange(height);
+  };
+
+  moveEnd.addEventListener(handler);
+  return () => moveEnd.removeEventListener(handler);
+}

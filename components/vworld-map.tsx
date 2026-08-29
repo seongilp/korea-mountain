@@ -3,7 +3,15 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { boundsOf, toTrailLines, type TrailLine } from '@/lib/trail-geometry';
-import { loadVworld, waitForGlobe, type VwMap, type VworldNamespace } from '@/lib/vworld';
+import {
+  cameraHeightM,
+  loadVworld,
+  waitForGlobe,
+  watchCameraHeight,
+  type VwCameraPosition,
+  type VwMap,
+  type VworldNamespace,
+} from '@/lib/vworld';
 import type { MountainBundle } from '@/lib/mountains';
 
 /**
@@ -30,9 +38,25 @@ const METERS_PER_DEGREE = 111_000;
  * 덮어버려 오히려 선이 사라진다(실제로 그렇게 됐다).
  * 그래서 색을 진하게 만들고 선을 굵히는 쪽으로 간다.
  */
-const LINE_WIDTH = 16;
-/** 코스를 하나 고르면 그 코스만 굵게, 나머지는 흐리게. */
-const SELECTED_LINE_WIDTH = 26;
+/**
+ * 카메라 고도별 선 굵기.
+ *
+ * 브이월드 선 굵기는 화면 픽셀 고정이라 줌과 무관하게 같은 두께로 그려진다.
+ * 멀리서 잘 보이게 굵히면 가까이 왔을 때 능선을 통째로 덮어버린다.
+ * 그래서 카메라 고도로 단계를 나눈다. 값은 실제 화면을 보고 정했다.
+ */
+const WIDTH_STEPS: { aboveM: number; width: number; selected: number }[] = [
+  { aboveM: 20_000, width: 32, selected: 52 },
+  { aboveM: 8_000, width: 20, selected: 34 },
+  { aboveM: 3_000, width: 12, selected: 20 },
+  { aboveM: 1_200, width: 7, selected: 12 },
+  { aboveM: 0, width: 4, selected: 7 },
+];
+
+function widthsFor(heightM: number | null): { width: number; selected: number } {
+  const step = WIDTH_STEPS.find((s) => (heightM ?? 30_000) >= s.aboveM);
+  return step ?? WIDTH_STEPS[WIDTH_STEPS.length - 1];
+}
 const DIMMED_ALPHA = 120;
 
 /**
@@ -78,7 +102,9 @@ function drawTrails(
   vw: VworldNamespace,
   lines: TrailLine[],
   selectedCourseId: string | null,
+  heightM: number | null,
 ): string[] {
+  const { width, selected } = widthsFor(heightM);
   const ids: string[] = [];
 
   for (const line of lines) {
@@ -102,7 +128,7 @@ function drawTrails(
      * 플래그가 아니라 `outlineColor != ""` 인데, setOutLineColor 는 vw.Color 가 아닌 값을 거부한다.
      * 즉 경고는 무해하고 피할 수도 없다.
      */
-    geometry.setWidth(isSelected ? SELECTED_LINE_WIDTH : LINE_WIDTH);
+    geometry.setWidth(isSelected ? selected : width);
     // 0 이어야 Cesium 의 지면고정(clampToGround) 경로를 타서 지형을 따라 휜다.
     // 0 이 아니면 그 값이 절대 고도가 되어 산속에 박히거나 공중에 뜬다.
     geometry.setDistanceFromTerrain(0);
@@ -118,6 +144,12 @@ export function VworldMap({ apiKey, bundle, focus, active, selectedCourseId = nu
   const vwRef = useRef<VworldNamespace | null>(null);
   const mapRef = useRef<VwMap | null>(null);
   const drawnRef = useRef<string[]>([]);
+  // 카메라 감시 콜백이 최신 값을 보도록 ref 로 들고 있는다. 감시는 한 번만 등록한다.
+  const linesRef = useRef<TrailLine[]>([]);
+  const selectedCourseRef = useRef<string | null>(null);
+  const drawnWidthRef = useRef<number | null>(null);
+  /** ready 직후 첫 카메라 이동이 삼켜지는 경우가 있어 한 번만 재시도한다. */
+  const firstMoveDoneRef = useRef(false);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [message, setMessage] = useState<string | null>(null);
 
@@ -172,6 +204,29 @@ export function VworldMap({ apiKey, bundle, focus, active, selectedCourseId = nu
     // 부모가 이 컴포넌트를 언마운트하지 않은 채 CSS 로만 숨긴다.
   }, [apiKey]);
 
+  /*
+   * 카메라 고도가 바뀌면 굵기 단계를 다시 계산해 필요할 때만 선을 다시 그린다.
+   * 브이월드에는 이미 그린 선의 굵기를 바꾸는 API 가 없어 지우고 다시 그리는 수밖에 없다.
+   * 매 프레임 다시 그리면 무거우니 단계가 실제로 달라진 경우에만 움직인다.
+   */
+  useEffect(() => {
+    if (status !== 'ready') return;
+
+    return watchCameraHeight((heightM) => {
+      const next = widthsFor(heightM);
+      if (next.width === drawnWidthRef.current) return;
+      drawnWidthRef.current = next.width;
+
+      const vw = vwRef.current;
+      const map = mapRef.current;
+      const lines = linesRef.current;
+      if (!vw || !map || lines.length === 0) return;
+
+      for (const id of drawnRef.current) map.removeObjectById(id);
+      drawnRef.current = drawTrails(vw, lines, selectedCourseRef.current, heightM);
+    });
+  }, [status]);
+
   /* 선택된 산의 등산로를 다시 그린다. */
   useEffect(() => {
     if (status !== 'ready') return;
@@ -183,7 +238,26 @@ export function VworldMap({ apiKey, bundle, focus, active, selectedCourseId = nu
     drawnRef.current = [];
 
     const lines = toTrailLines(bundle?.courses);
-    if (lines.length > 0) drawnRef.current = drawTrails(vw, lines, selectedCourseId);
+    linesRef.current = lines;
+    selectedCourseRef.current = selectedCourseId;
+    const heightM = cameraHeightM();
+    drawnWidthRef.current = widthsFor(heightM).width;
+    if (lines.length > 0) drawnRef.current = drawTrails(vw, lines, selectedCourseId, heightM);
+
+    /*
+     * ready 직후의 첫 moveTo 가 무시되는 일이 있다. waitForGlobe 가 tilesLoaded 를 보고
+     * 통과시키는데, 그 시점에도 카메라 컨트롤러가 아직 flyTo 를 받지 못하는 순간이 있다.
+     * (지리산을 고르고 VW 를 켜면 전국 뷰 900km 에 그대로 머물렀다.)
+     * 두 번째 이동부터는 정상이므로, 첫 이동만 한 박자 뒤에 한 번 더 보낸다.
+     */
+    const move = (position: VwCameraPosition) => {
+      map.moveTo(position);
+      if (firstMoveDoneRef.current) return;
+      firstMoveDoneRef.current = true;
+      window.setTimeout(() => {
+        if (mapRef.current === map) map.moveTo(position);
+      }, 1_200);
+    };
 
     const bounds = boundsOf(lines);
     if (bounds) {
@@ -195,21 +269,21 @@ export function VworldMap({ apiKey, bundle, focus, active, selectedCourseId = nu
        * (span 그대로 넣었더니 북한산이 화면의 1/4 로 찍혔다.)
        */
       const altM = Math.min(40_000, Math.max(1_500, (spanDeg * METERS_PER_DEGREE) / 2.6));
-      map.moveTo(
+      move(
         new vw.CameraPosition(
           new vw.CoordZ((west + east) / 2, (south + north) / 2, altM),
           new vw.Direction(0, MOUNTAIN_TILT_DEG, 0),
         ),
       );
     } else if (focus) {
-      map.moveTo(
+      move(
         new vw.CameraPosition(
           new vw.CoordZ(focus.lon, focus.lat, 8_000),
           new vw.Direction(0, MOUNTAIN_TILT_DEG, 0),
         ),
       );
     } else {
-      map.moveTo(
+      move(
         new vw.CameraPosition(
           new vw.CoordZ(KOREA_VIEW.lon, KOREA_VIEW.lat, KOREA_VIEW.altM),
           new vw.Direction(0, KOREA_VIEW.tiltDeg, 0),
