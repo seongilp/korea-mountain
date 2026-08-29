@@ -4,10 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 
 import { boundsOf, toTrailLines, type TrailLine } from '@/lib/trail-geometry';
 import {
+  addBoundaryOverlay,
   cameraHeightM,
   loadVworld,
   waitForGlobe,
   watchCameraHeight,
+  removeBoundaryOverlay,
   type VwCameraPosition,
   type VwMap,
   type VworldNamespace,
@@ -81,6 +83,8 @@ function deepen([r, g, b]: [number, number, number]): [number, number, number] {
 interface VworldMapProps {
   /** 선택된 코스ID. 그 코스만 굵게, 나머지는 흐리게 그린다. */
   selectedCourseId?: string | null;
+  /** 행정경계·지명 오버레이 표시 여부. */
+  showBoundary?: boolean;
   apiKey: string;
   bundle: MountainBundle | null;
   /** 선택된 산의 좌표. 코스가 없을 때 카메라를 보낼 곳. */
@@ -139,7 +143,14 @@ function drawTrails(
   return ids;
 }
 
-export function VworldMap({ apiKey, bundle, focus, active, selectedCourseId = null }: VworldMapProps) {
+export function VworldMap({
+  apiKey,
+  bundle,
+  focus,
+  active,
+  selectedCourseId = null,
+  showBoundary = false,
+}: VworldMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const vwRef = useRef<VworldNamespace | null>(null);
   const mapRef = useRef<VwMap | null>(null);
@@ -150,6 +161,7 @@ export function VworldMap({ apiKey, bundle, focus, active, selectedCourseId = nu
   const drawnWidthRef = useRef<number | null>(null);
   /** ready 직후 첫 카메라 이동이 삼켜지는 경우가 있어 한 번만 재시도한다. */
   const firstMoveDoneRef = useRef(false);
+  const boundaryRef = useRef<unknown>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [message, setMessage] = useState<string | null>(null);
 
@@ -226,6 +238,18 @@ export function VworldMap({ apiKey, bundle, focus, active, selectedCourseId = nu
       drawnRef.current = drawTrails(vw, lines, selectedCourseRef.current, heightM);
     });
   }, [status]);
+
+  /* 행정경계 오버레이 */
+  useEffect(() => {
+    if (status !== 'ready') return;
+
+    if (showBoundary && !boundaryRef.current) {
+      boundaryRef.current = addBoundaryOverlay(apiKey);
+    } else if (!showBoundary && boundaryRef.current) {
+      removeBoundaryOverlay(boundaryRef.current);
+      boundaryRef.current = null;
+    }
+  }, [showBoundary, status, apiKey]);
 
   /* 선택된 산의 등산로를 다시 그린다. */
   useEffect(() => {

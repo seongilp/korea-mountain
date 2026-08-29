@@ -271,3 +271,57 @@ export function watchCameraHeight(onChange: (heightM: number) => void): () => vo
   moveEnd.addEventListener(handler);
   return () => moveEnd.removeEventListener(handler);
 }
+
+/* ------------------------------------------------------------------ */
+/* 행정경계 오버레이                                                    */
+/* ------------------------------------------------------------------ */
+
+interface CesiumImageryLayers {
+  length: number;
+  addImageryProvider(provider: unknown): unknown;
+  remove(layer: unknown, destroy?: boolean): void;
+}
+
+interface CesiumNamespace {
+  UrlTemplateImageryProvider: new (options: Record<string, unknown>) => unknown;
+  Rectangle?: { fromDegrees(w: number, s: number, e: number, n: number): unknown };
+}
+
+/**
+ * 브이월드 하이브리드 타일(행정경계 + 지명, 투명 배경)을 위성 영상 위에 얹는다.
+ *
+ * 위성 영상만으로는 어느 시군구인지 분간이 안 된다. 브이월드가 위성 위에 올리라고
+ * 만든 오버레이가 이것이다.
+ *
+ * 타일 좌표는 `{z}/{y}/{x}` 순서다 — 흔한 `{z}/{x}/{y}` 로 넣으면 전부 예외 XML 이 온다
+ * (실측으로 확인했다). Cesium 의 UrlTemplateImageryProvider 는 기본이 XYZ 이므로
+ * 템플릿에서 순서를 직접 뒤집어 준다.
+ */
+export function addBoundaryOverlay(apiKey: string): unknown | null {
+  const cesium = (window as unknown as { Cesium?: CesiumNamespace }).Cesium;
+  const layers = (window as unknown as { ws3d?: { viewer?: { imageryLayers?: CesiumImageryLayers } } })
+    .ws3d?.viewer?.imageryLayers;
+  if (!cesium?.UrlTemplateImageryProvider || !layers) return null;
+
+  const provider = new cesium.UrlTemplateImageryProvider({
+    url: `https://api.vworld.kr/req/wmts/1.0.0/${apiKey}/Hybrid/{z}/{y}/{x}.png`,
+    // 브이월드 하이브리드는 이 범위에서만 타일을 준다. 벗어나면 예외 XML 이 온다.
+    minimumLevel: 6,
+    maximumLevel: 18,
+    credit: '브이월드',
+    ...(cesium.Rectangle ? { rectangle: cesium.Rectangle.fromDegrees(124, 33, 132, 39) } : {}),
+  });
+
+  return layers.addImageryProvider(provider);
+}
+
+export function removeBoundaryOverlay(layer: unknown): void {
+  const layers = (window as unknown as { ws3d?: { viewer?: { imageryLayers?: CesiumImageryLayers } } })
+    .ws3d?.viewer?.imageryLayers;
+  if (!layers || !layer) return;
+  try {
+    layers.remove(layer, true);
+  } catch {
+    // 뷰어가 이미 정리된 뒤일 수 있다. 오버레이 하나 못 지운다고 지도가 망가지진 않는다.
+  }
+}

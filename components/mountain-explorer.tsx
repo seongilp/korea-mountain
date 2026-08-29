@@ -4,6 +4,7 @@ import {
   Box,
   Globe,
   List,
+  Map as MapIcon,
   Mountain,
   Route,
   Search,
@@ -85,6 +86,8 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
   const [listOpen, setListOpen] = useState(false);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [threeD, setThreeD] = useState(false);
+  // 위성 영상만으로는 어느 시군구인지 분간이 안 된다. VW 모드에서만 의미가 있다.
+  const [vworldBoundary, setVworldBoundary] = useState(true);
   const [vworld, setVworld] = useState(false);
   /**
    * 브이월드 뷰어(ws3d.viewer)는 전역 싱글턴이고 destroy 후 재생성이 안 된다. 한 번 켠 뒤에는
@@ -407,6 +410,18 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
               {observedAt.slice(5, 16)} 관측 · {weather.length}지점
             </span>
           )}
+          {/* 경계 오버레이는 위성 영상 위에서만 의미가 있어 VW 모드에서만 보인다. */}
+          {vworld && (
+            <Button
+              variant={vworldBoundary ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setVworldBoundary((value) => !value)}
+              title="행정경계와 지명을 위성 영상 위에 겹칩니다"
+            >
+              <MapIcon className="size-4" />
+              경계
+            </Button>
+          )}
           <Button
             variant={threeD ? 'default' : 'outline'}
             size="sm"
@@ -581,6 +596,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
                 focus={vworldFocus}
                 active={vworld}
                 selectedCourseId={selectedCourseId}
+                showBoundary={vworldBoundary}
               />
             </div>
           )}
