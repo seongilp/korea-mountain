@@ -30,8 +30,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files — 실제 인증키가 들어간다. 절대 커밋 금지.
+# .env.local: DATA_GO_KR_KEY, VERCEL_OIDC_TOKEN
 .env*
+# 단, 키 없는 템플릿은 커밋한다.
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +42,21 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 에이전트 도구 작업 디렉터리
+.gstack/
+
+# 원본 대용량 데이터 (약 17MB, zip/csv/pdf/xlsx).
+# data/README.md 에 curl 재현 절차가 있어 언제든 다시 받을 수 있고,
+# 파생 결과인 data/processed/ 와 public/data/ 는 커밋되므로 저장소에 둘 이유가 없다.
+data/raw/
+
+# extract_mtweather_stations.py 가 내려받아 두는 참고문서 캐시 (422KB)
+data/scripts/.cache-mtweather.docx
+
+# python
+__pycache__/
+*.py[cod]
+
+# public/data/ 는 무시하지 않는다 — 46MB / 4,616개지만 배포 산출물 그 자체다.
+# 정적 CDN 이 직접 서빙하므로 빠지면 지도에 아무것도 안 뜬다.
