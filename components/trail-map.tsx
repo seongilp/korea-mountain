@@ -63,6 +63,9 @@ interface TrailMapProps {
   threeD: boolean;
   /** 선택과 무관하게 화면 안에 깔아두는 등산로. */
   ambient: GeoJSON.FeatureCollection | null;
+  /** 선택된 개별 코스의 코스ID. 없으면 null. */
+  selectedCourseId: string | null;
+  onSelectCourse: (courseId: string | null) => void;
   /** 지도가 멈출 때 현재 보이는 영역을 알려준다. 뷰포트 기준 지연 로딩에 쓴다. */
   onViewportChange: (view: { bounds: [number, number, number, number]; zoom: number }) => void;
 }
@@ -80,6 +83,8 @@ export function TrailMap({
   threeD,
   ambient,
   onViewportChange,
+  selectedCourseId,
+  onSelectCourse,
 }: TrailMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -87,6 +92,7 @@ export function TrailMap({
   const fittedRef = useRef(false);
   const onSelectRef = useRef(onSelect);
   const onViewportRef = useRef(onViewportChange);
+  const onSelectCourseRef = useRef(onSelectCourse);
 
   useEffect(() => {
     onSelectRef.current = onSelect;
@@ -95,6 +101,10 @@ export function TrailMap({
   useEffect(() => {
     onViewportRef.current = onViewportChange;
   }, [onViewportChange]);
+
+  useEffect(() => {
+    onSelectCourseRef.current = onSelectCourse;
+  }, [onSelectCourse]);
 
   /* 지도 생성 */
   useEffect(() => {
@@ -140,7 +150,8 @@ export function TrailMap({
       });
 
       map.addSource(PEAK_SOURCE, { type: 'geojson', data: EMPTY, promoteId: 'name' });
-      map.addSource(COURSE_SOURCE, { type: 'geojson', data: EMPTY });
+      // 코스 단위 선택 표시를 하려면 안정적인 feature id 가 필요하다.
+      map.addSource(COURSE_SOURCE, { type: 'geojson', data: EMPTY, promoteId: '코스ID' });
       map.addSource(POI_SOURCE, { type: 'geojson', data: EMPTY });
 
       // 국립공원 탐방로. 통제 구간은 붉은 파선으로 구분한다.
@@ -213,7 +224,27 @@ export function TrailMap({
             1200,
             '#f87171',
           ],
-          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1.5, 13, 3, 16, 5],
+          // maplibre 는 한 표현식에 줌 기반 interpolate 를 두 번 못 쓴다.
+          // (layers.course-line.paint.line-width: Only one zoom-based ... may be used)
+          // 그래서 interpolate 를 바깥에 두고 각 스톱 안에서 선택 여부로 분기한다.
+          'line-width': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            9,
+            ['case', ['boolean', ['feature-state', 'courseSelected'], false], 3.5, 1.5],
+            13,
+            ['case', ['boolean', ['feature-state', 'courseSelected'], false], 6, 3],
+            16,
+            ['case', ['boolean', ['feature-state', 'courseSelected'], false], 9, 5],
+          ],
+          // 코스를 하나 고르면 나머지는 물러난다.
+          'line-opacity': [
+            'case',
+            ['boolean', ['feature-state', 'courseDimmed'], false],
+            0.28,
+            1,
+          ],
         },
       });
 
@@ -342,6 +373,17 @@ export function TrailMap({
     map.on('click', 'peak-dot', (event) => {
       const key = event.features?.[0]?.properties?.key as string | undefined;
       if (key) onSelectRef.current(key);
+    });
+
+    map.on('mouseenter', 'course-line', () => {
+      map.getCanvas().style.cursor = 'pointer';
+    });
+    map.on('mouseleave', 'course-line', () => {
+      map.getCanvas().style.cursor = '';
+    });
+    map.on('click', 'course-line', (event) => {
+      const id = event.features?.[0]?.properties?.['코스ID'] as string | undefined;
+      if (id) onSelectCourseRef.current(id);
     });
 
     const notifyViewport = () => {
@@ -501,6 +543,29 @@ export function TrailMap({
     if (loadedRef.current) apply();
     else map.once('idle', apply);
   }, [ambient]);
+
+  /* 개별 코스 선택 강조 */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const apply = () => {
+      if (!map.getSource(COURSE_SOURCE)) return;
+      map.removeFeatureState({ source: COURSE_SOURCE });
+      if (!selectedCourseId || !bundle) return;
+      for (const feature of bundle.courses.features) {
+        const id = feature.properties?.['코스ID'] as string | undefined;
+        if (!id) continue;
+        map.setFeatureState(
+          { source: COURSE_SOURCE, id },
+          { courseSelected: id === selectedCourseId, courseDimmed: id !== selectedCourseId },
+        );
+      }
+    };
+
+    if (loadedRef.current) apply();
+    else map.once('idle', apply);
+  }, [selectedCourseId, bundle]);
 
   /* 3D 지형 */
   useEffect(() => {

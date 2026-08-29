@@ -17,7 +17,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { DataNotice } from '@/components/data-notice';
+import { ElevationProfile } from '@/components/elevation-profile';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { buildProfile } from '@/lib/elevation';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import {
@@ -71,6 +73,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
   const [observedAt, setObservedAt] = useState<string | null>(null);
   // 모바일에서는 사이드바가 지도를 덮는 시트로 뜬다. lg 이상에서는 이 상태를 쓰지 않는다.
   const [listOpen, setListOpen] = useState(false);
+  const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [threeD, setThreeD] = useState(false);
   const [vworld, setVworld] = useState(false);
   /**
@@ -292,6 +295,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
 
   const handleSelect = useCallback((name: string) => {
     setSelected((current) => (current === name ? null : name));
+    setSelectedCourseId(null);
     // 모바일에서 목록을 고른 뒤 시트가 지도를 계속 가리면 고른 의미가 없다.
     setListOpen(false);
   }, []);
@@ -303,8 +307,21 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
     // 이전 데이터셋에서 난 오류 배너가 남아 새 탭에서도 실패한 것처럼 보이는 걸 막는다.
     setError(null);
     setAmbient(null);
+    setSelectedCourseId(null);
     bundleCache.current.clear();
   }, []);
+
+  const selectedCourse = useMemo(() => {
+    if (!bundle || !selectedCourseId) return null;
+    return (
+      bundle.courses.features.find((f) => f.properties?.['코스ID'] === selectedCourseId) ?? null
+    );
+  }, [bundle, selectedCourseId]);
+
+  const profile = useMemo(
+    () => (selectedCourse ? buildProfile(selectedCourse.geometry) : null),
+    [selectedCourse],
+  );
 
   const current = useMemo(
     () => source.find((m) => mountainKey(m) === selected) ?? null,
@@ -541,6 +558,8 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
               threeD={threeD}
               ambient={ambient}
               onViewportChange={setView}
+              selectedCourseId={selectedCourseId}
+              onSelectCourse={setSelectedCourseId}
             />
           </div>
 
@@ -579,10 +598,66 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
               </dl>
               {loading && <Skeleton className="mt-3 h-4 w-full" />}
               {bundle && !loading && (
-                <p className="text-muted-foreground mt-3 text-xs">
-                  코스 {bundle.courses.features.length}개 · POI {bundle.pois.features.length}개
-                </p>
+                <>
+                  <p className="text-muted-foreground mt-3 text-xs">
+                    코스 {bundle.courses.features.length}개 · POI {bundle.pois.features.length}개
+                  </p>
+                  {/* 지도에서 선을 정확히 누르기는 어렵다. 특히 모바일에서.
+                      목록으로도 고를 수 있어야 실제로 쓸 수 있다. */}
+                  <ul className="border-border/60 mt-2 max-h-40 space-y-0.5 overflow-y-auto border-t pt-2">
+                    {bundle.courses.features.map((feature) => {
+                      const id = feature.properties?.['코스ID'] as string | undefined;
+                      if (!id) return null;
+                      const km = feature.properties?.['거리_km'] as number | undefined;
+                      const gain = feature.properties?.['누적상승_m'] as number | undefined;
+                      return (
+                        <li key={id}>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedCourseId(id === selectedCourseId ? null : id)}
+                            aria-current={id === selectedCourseId}
+                            className={cn(
+                              'hover:bg-accent/60 flex w-full items-baseline gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors',
+                              id === selectedCourseId && 'bg-accent',
+                            )}
+                          >
+                            <span className="min-w-0 flex-1 truncate">{id.split('_').pop()}</span>
+                            <span className="text-muted-foreground shrink-0 tabular-nums">
+                              {km?.toFixed(1) ?? '—'}km
+                            </span>
+                            <span className="text-muted-foreground shrink-0 tabular-nums">
+                              ↗{gain ?? '—'}m
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
               )}
+            </div>
+          )}
+
+          {/* 개별 코스 상세. 산 요약 패널과 겹치지 않게 아래에 붙인다. */}
+          {profile && selectedCourse && (
+            <div className="bg-card/95 border-border absolute inset-x-4 bottom-20 z-20 rounded-lg border p-3 backdrop-blur md:inset-x-auto md:right-4 md:bottom-24 md:w-[34rem]">
+              <div className="mb-1 flex items-start gap-2">
+                <span className="min-w-0 flex-1 truncate text-sm font-bold">
+                  {(selectedCourse.properties?.['그룹'] as string) ?? ''} 코스
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCourseId(null)}
+                  aria-label="코스 닫기"
+                  className="hover:bg-accent text-muted-foreground rounded-md p-0.5"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+              <ElevationProfile
+                profile={profile}
+                label={(selectedCourse.properties?.['코스ID'] as string) ?? '코스'}
+              />
             </div>
           )}
 
