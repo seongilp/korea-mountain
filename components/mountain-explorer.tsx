@@ -52,6 +52,16 @@ const VWORLD_KEY = process.env.NEXT_PUBLIC_VWORLD_KEY ?? '';
 /** 사이드바에 한 번에 그리는 최대 개수. 봉우리 데이터는 4,000개가 넘어 전부 그리면 DOM 이 죽는다. */
 const MAX_LIST_ROWS = 200;
 
+/**
+ * 코스ID(`설악산_0000000005`)는 사람이 못 읽는다. 번들 안에서의 순번으로 바꿔 보여준다.
+ * 원본에 코스 이름이 없어서(100대명산·봉우리 데이터 모두) 순번이 최선이다.
+ */
+function courseLabel(bundle: MountainBundle | null, courseId: string | null): string {
+  if (!bundle || !courseId) return '코스';
+  const index = bundle.courses.features.findIndex((f) => f.properties?.['코스ID'] === courseId);
+  return index < 0 ? '코스' : `${index + 1}코스`;
+}
+
 /** 이 줌 아래에서는 주변 등산로를 깔지 않는다. 전국 뷰에서 6,748 코스는 의미도 없고 무겁다. */
 const AMBIENT_MIN_ZOOM = 10.5;
 
@@ -570,6 +580,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
                 bundle={bundle}
                 focus={vworldFocus}
                 active={vworld}
+                selectedCourseId={selectedCourseId}
               />
             </div>
           )}
@@ -621,7 +632,9 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
                               id === selectedCourseId && 'bg-accent',
                             )}
                           >
-                            <span className="min-w-0 flex-1 truncate">{id.split('_').pop()}</span>
+                            <span className="min-w-0 flex-1 truncate">
+                              {courseLabel(bundle, id)}
+                            </span>
                             <span className="text-muted-foreground shrink-0 tabular-nums">
                               {km?.toFixed(1) ?? '—'}km
                             </span>
@@ -643,7 +656,8 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
             <div className="bg-card/95 border-border absolute inset-x-4 bottom-20 z-20 rounded-lg border p-3 backdrop-blur md:inset-x-auto md:right-4 md:bottom-24 md:w-[34rem]">
               <div className="mb-1 flex items-start gap-2">
                 <span className="min-w-0 flex-1 truncate text-sm font-bold">
-                  {(selectedCourse.properties?.['그룹'] as string) ?? ''} 코스
+                  {(selectedCourse.properties?.['그룹'] as string) ?? ''}{' '}
+                  {courseLabel(bundle, selectedCourseId)}
                 </span>
                 <button
                   type="button"
@@ -656,7 +670,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
               </div>
               <ElevationProfile
                 profile={profile}
-                label={(selectedCourse.properties?.['코스ID'] as string) ?? '코스'}
+                label={`${(selectedCourse.properties?.['거리_km'] as number)?.toFixed(1) ?? '—'}km 코스`}
               />
             </div>
           )}

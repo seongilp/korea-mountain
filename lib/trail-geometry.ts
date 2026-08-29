@@ -5,6 +5,8 @@ export interface TrailLine {
   points: [number, number][];
   /** `#rrggbb`. 누적상승 기준 난이도 색. */
   color: string;
+  /** 어느 코스의 가닥인지. 선택 강조에 쓴다. */
+  courseId: string;
 }
 
 /** 코스 하나당 점 상한. 실제 데이터 최대는 1,839점인데 Cesium 지면고정 선은 점 수에 민감하다. */
@@ -75,6 +77,7 @@ export function toTrailLines(courses: GeoJSON.FeatureCollection | null | undefin
 
     const gain = Number(feature.properties?.['누적상승_m'] ?? 0);
     const color = difficultyColor(Number.isFinite(gain) ? gain : 0);
+    const courseId = String(feature.properties?.['코스ID'] ?? '');
 
     const strands: GeoJSON.Position[][] =
       geometry.type === 'LineString'
@@ -86,7 +89,7 @@ export function toTrailLines(courses: GeoJSON.FeatureCollection | null | undefin
     for (const strand of strands) {
       const points = decimate(toPairs(strand));
       // 브이월드의 LineStringZ.setPoints 는 점이 2개 미만이면 조용히 무시한다.
-      if (points.length > 1) lines.push({ points, color });
+      if (points.length > 1) lines.push({ points, color, courseId });
     }
   }
 

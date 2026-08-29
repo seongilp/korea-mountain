@@ -22,9 +22,41 @@ const MOUNTAIN_TILT_DEG = -55;
 const METERS_PER_DEGREE = 111_000;
 
 /** 등산로 선 굵기(px). 위성영상 위라 얇으면 묻힌다. */
-const LINE_WIDTH = 5;
+/*
+ * 위성 영상 위에서는 선이 묻힌다. 영상이 초록·갈색이라 파스텔 난이도 색과 명도가 비슷하다.
+ *
+ * maplibre 에서 쓰던 '어두운 케이싱을 아래에 깔기' 는 여기서 안 통한다. Cesium 은
+ * 지면고정 폴리라인의 그리기 순서를 제어할 수 없어서, 나중에 만든 케이싱이 색선을
+ * 덮어버려 오히려 선이 사라진다(실제로 그렇게 됐다).
+ * 그래서 색을 진하게 만들고 선을 굵히는 쪽으로 간다.
+ */
+const LINE_WIDTH = 8;
+/** 코스를 하나 고르면 그 코스만 굵게, 나머지는 흐리게. */
+const SELECTED_LINE_WIDTH = 13;
+const DIMMED_ALPHA = 120;
+
+/**
+ * 위성 배경용으로 색을 진하게 만든다.
+ * 채도를 올리고 명도를 낮춰 초록 영상과 분리되게 한다. 색상(hue)은 그대로 둬야
+ * 범례가 두 지도에서 같은 뜻을 유지한다.
+ */
+function deepen([r, g, b]: [number, number, number]): [number, number, number] {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const mid = (max + min) / 2;
+  const SATURATION = 1.45;
+  const DARKEN = 0.82;
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  return [
+    clamp((mid + (r - mid) * SATURATION) * DARKEN),
+    clamp((mid + (g - mid) * SATURATION) * DARKEN),
+    clamp((mid + (b - mid) * SATURATION) * DARKEN),
+  ];
+}
 
 interface VworldMapProps {
+  /** 선택된 코스ID. 그 코스만 굵게, 나머지는 흐리게 그린다. */
+  selectedCourseId?: string | null;
   apiKey: string;
   bundle: MountainBundle | null;
   /** 선택된 산의 좌표. 코스가 없을 때 카메라를 보낼 곳. */
@@ -42,10 +74,16 @@ function hexToRgb(hex: string): [number, number, number] {
 }
 
 /** 선 목록을 브이월드에 그리고, 나중에 지울 수 있도록 생성된 객체 id 를 돌려준다. */
-function drawTrails(vw: VworldNamespace, lines: TrailLine[]): string[] {
+function drawTrails(
+  vw: VworldNamespace,
+  lines: TrailLine[],
+  selectedCourseId: string | null,
+): string[] {
   const ids: string[] = [];
 
   for (const line of lines) {
+    const isSelected = selectedCourseId !== null && line.courseId === selectedCourseId;
+    const isDimmed = selectedCourseId !== null && !isSelected;
     const points = new vw.Collection();
     // z 는 넘겨도 무시된다. LineStringZ.makeLineString 이 모든 점의 높이를
     // distanceFromTerrain 하나로 덮어쓰기 때문이다. 그래서 GPX 고도는 버리고
@@ -53,8 +91,9 @@ function drawTrails(vw: VworldNamespace, lines: TrailLine[]): string[] {
     for (const [lon, lat] of line.points) points.add(new vw.CoordZ(lon, lat, 0));
 
     const geometry = new vw.geom.LineStringZ(points);
-    const [r, g, b] = hexToRgb(line.color);
-    geometry.setFillColor(new vw.Color(r, g, b, 255));
+    const [r, g, b] = deepen(hexToRgb(line.color));
+    const alpha = isDimmed ? DIMMED_ALPHA : 255;
+    geometry.setFillColor(new vw.Color(r, g, b, alpha));
     /*
      * 테두리는 설정하지 않는다. Cesium 은 지면고정 선의 테두리를 지원하지 않아
      * "outlines are unsupported on terrain" 경고를 한 번 남기고 스스로 꺼 버린다.
@@ -63,7 +102,7 @@ function drawTrails(vw: VworldNamespace, lines: TrailLine[]): string[] {
      * 플래그가 아니라 `outlineColor != ""` 인데, setOutLineColor 는 vw.Color 가 아닌 값을 거부한다.
      * 즉 경고는 무해하고 피할 수도 없다.
      */
-    geometry.setWidth(LINE_WIDTH);
+    geometry.setWidth(isSelected ? SELECTED_LINE_WIDTH : LINE_WIDTH);
     // 0 이어야 Cesium 의 지면고정(clampToGround) 경로를 타서 지형을 따라 휜다.
     // 0 이 아니면 그 값이 절대 고도가 되어 산속에 박히거나 공중에 뜬다.
     geometry.setDistanceFromTerrain(0);
@@ -74,7 +113,7 @@ function drawTrails(vw: VworldNamespace, lines: TrailLine[]): string[] {
   return ids;
 }
 
-export function VworldMap({ apiKey, bundle, focus, active }: VworldMapProps) {
+export function VworldMap({ apiKey, bundle, focus, active, selectedCourseId = null }: VworldMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const vwRef = useRef<VworldNamespace | null>(null);
   const mapRef = useRef<VwMap | null>(null);
@@ -144,7 +183,7 @@ export function VworldMap({ apiKey, bundle, focus, active }: VworldMapProps) {
     drawnRef.current = [];
 
     const lines = toTrailLines(bundle?.courses);
-    if (lines.length > 0) drawnRef.current = drawTrails(vw, lines);
+    if (lines.length > 0) drawnRef.current = drawTrails(vw, lines, selectedCourseId);
 
     const bounds = boundsOf(lines);
     if (bounds) {
@@ -177,7 +216,7 @@ export function VworldMap({ apiKey, bundle, focus, active }: VworldMapProps) {
         ),
       );
     }
-  }, [bundle, focus, status]);
+  }, [bundle, focus, status, selectedCourseId]);
 
   /* 숨어 있는 동안 컨테이너 크기가 0 이었으므로, 다시 보일 때 캔버스를 재계산한다. */
   useEffect(() => {
