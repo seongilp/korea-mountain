@@ -1,0 +1,1 @@
+{"name":"천앙봉","courses":{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"출처":"전국주요봉우리","그룹":"천앙봉","코스ID":"천앙봉_0000000001","정점수":16,"거리_km":0.17,"최저고도_m":156.8,"최고고도_m":159.1,"누적상승_m":0},"geometry":{"type":"LineString","coordinates":[[127.56827,36.123,158.4],[127.56825,36.12146,158.7]]}}]},"pois":{"type":"FeatureCollection","features":[]}}
