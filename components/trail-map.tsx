@@ -25,20 +25,6 @@ const POI_SOURCE = 'pois';
 const WEATHER_SOURCE = 'weather';
 const NP_SOURCE = 'np-trails';
 const AMBIENT_SOURCE = 'ambient-courses';
-const TERRAIN_SOURCE = 'terrain-dem';
-const HILLSHADE_SOURCE = 'hillshade-dem';
-
-/**
- * 키가 필요 없는 전지구 DEM. terrarium 인코딩(RGB 에 고도를 담는 방식)이라
- * maplibre 의 raster-dem 소스에 encoding: 'terrarium' 을 반드시 지정해야 한다.
- * terrain-rgb(Mapbox 방식)로 잘못 읽으면 지형이 엉뚱하게 솟는다.
- */
-const TERRAIN_TILES = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
-const TERRAIN_ATTRIBUTION =
-  '<a href="https://registry.opendata.aws/terrain-tiles/">Terrain Tiles</a>';
-
-/** 산이 실제 비율로는 밋밋해 보인다. 등산로 기복이 읽히도록 살짝 과장한다. */
-const TERRAIN_EXAGGERATION = 1.4;
 
 export interface WeatherStation {
   obsid: number;
@@ -60,7 +46,6 @@ interface TrailMapProps {
   weather: WeatherStation[];
   showWeather: boolean;
   npTrails: GeoJSON.FeatureCollection | null;
-  threeD: boolean;
   /** 선택과 무관하게 화면 안에 깔아두는 등산로. */
   ambient: GeoJSON.FeatureCollection | null;
   /** 선택된 개별 코스의 코스ID. 없으면 null. */
@@ -80,7 +65,6 @@ export function TrailMap({
   weather,
   showWeather,
   npTrails,
-  threeD,
   ambient,
   onViewportChange,
   selectedCourseId,
@@ -120,35 +104,10 @@ export function TrailMap({
       attributionControl: { compact: true },
     });
     mapRef.current = map;
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
 
     map.on('load', () => {
-      map.addSource(TERRAIN_SOURCE, {
-        type: 'raster-dem',
-        tiles: [TERRAIN_TILES],
-        tileSize: 256,
-        maxzoom: 13,
-        encoding: 'terrarium',
-        attribution: TERRAIN_ATTRIBUTION,
-      });
-      // maplibre 는 지형과 hillshade 가 같은 소스를 공유하면 렌더링 품질이 떨어진다고 경고한다.
-      // 타일 URL 은 같아도 소스를 분리하면 각자의 타일 캐시를 쓴다.
-      map.addSource(HILLSHADE_SOURCE, {
-        type: 'raster-dem',
-        tiles: [TERRAIN_TILES],
-        tileSize: 256,
-        maxzoom: 13,
-        encoding: 'terrarium',
-      });
-      map.addLayer({
-        id: 'hillshade',
-        type: 'hillshade',
-        source: HILLSHADE_SOURCE,
-        layout: { visibility: 'none' },
-        paint: { 'hillshade-exaggeration': 0.5, 'hillshade-shadow-color': '#000000' },
-      });
-
       map.addSource(PEAK_SOURCE, { type: 'geojson', data: EMPTY, promoteId: 'name' });
       // 코스 단위 선택 표시를 하려면 안정적인 feature id 가 필요하다.
       map.addSource(COURSE_SOURCE, { type: 'geojson', data: EMPTY, promoteId: '코스ID' });
@@ -524,8 +483,7 @@ export function TrailMap({
         }
       }
       if (bounds.isEmpty()) return;
-      // fitBounds 는 pitch 를 0 으로 되돌린다. 3D 상태면 기울기를 되살린다.
-      map.fitBounds(bounds, { padding: 60, duration: 600, pitch: map.getPitch() });
+      map.fitBounds(bounds, { padding: 60, duration: 600 });
     };
 
     if (loadedRef.current) apply();
@@ -566,30 +524,6 @@ export function TrailMap({
     if (loadedRef.current) apply();
     else map.once('idle', apply);
   }, [selectedCourseId, bundle]);
-
-  /* 3D 지형 */
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    const apply = () => {
-      if (!map.getSource(TERRAIN_SOURCE)) return;
-
-      if (threeD) {
-        map.setTerrain({ source: TERRAIN_SOURCE, exaggeration: TERRAIN_EXAGGERATION });
-        if (map.getLayer('hillshade')) map.setLayoutProperty('hillshade', 'visibility', 'visible');
-        // 위에서 내려다보면 3D 인지 알 수 없다. 기울여야 기복이 보인다.
-        map.easeTo({ pitch: 62, duration: 900 });
-      } else {
-        map.setTerrain(null);
-        if (map.getLayer('hillshade')) map.setLayoutProperty('hillshade', 'visibility', 'none');
-        map.easeTo({ pitch: 0, bearing: 0, duration: 700 });
-      }
-    };
-
-    if (loadedRef.current) apply();
-    else map.once('idle', apply);
-  }, [threeD]);
 
   /* 국립공원 탐방로 레이어 */
   useEffect(() => {

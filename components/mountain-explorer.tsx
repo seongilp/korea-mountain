@@ -2,7 +2,6 @@
 
 import {
   Box,
-  Globe,
   List,
   Map as MapIcon,
   Mountain,
@@ -85,7 +84,6 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
   // 모바일에서는 사이드바가 지도를 덮는 시트로 뜬다. lg 이상에서는 이 상태를 쓰지 않는다.
   const [listOpen, setListOpen] = useState(false);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
-  const [threeD, setThreeD] = useState(false);
   // 위성 영상만으로는 어느 시군구인지 분간이 안 된다. VW 모드에서만 의미가 있다.
   const [vworldBoundary, setVworldBoundary] = useState(true);
   const [vworld, setVworld] = useState(false);
@@ -341,22 +339,12 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
     [source, selected],
   );
 
-  // 브이월드 지도와 maplibre 지도는 배타적이다. 둘을 겹쳐 놓으면 어느 쪽을 보는지 알 수 없다.
+  // 3D(브이월드)와 2D(maplibre)는 배타적이다. 둘을 겹쳐 놓으면 어느 쪽을 보는지 알 수 없다.
   const handleVworld = useCallback(() => {
     setVworld((value) => {
       const next = !value;
-      if (next) {
-        setVworldMounted(true);
-        setThreeD(false);
-      }
+      if (next) setVworldMounted(true);
       return next;
-    });
-  }, []);
-
-  const handleThreeD = useCallback(() => {
-    setThreeD((value) => {
-      if (!value) setVworld(false);
-      return !value;
     });
   }, []);
 
@@ -410,7 +398,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
               {observedAt.slice(5, 16)} 관측 · {weather.length}지점
             </span>
           )}
-          {/* 경계 오버레이는 위성 영상 위에서만 의미가 있어 VW 모드에서만 보인다. */}
+          {/* 경계 오버레이는 위성 영상 위에서만 의미가 있어 3D 모드에서만 보인다. */}
           {vworld && (
             <Button
               variant={vworldBoundary ? 'default' : 'outline'}
@@ -423,27 +411,18 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
             </Button>
           )}
           <Button
-            variant={threeD ? 'default' : 'outline'}
-            size="sm"
-            onClick={handleThreeD}
-            title="지형을 3D 로 보고 드래그로 회전합니다"
-          >
-            <Box className="size-4" />
-            3D
-          </Button>
-          <Button
             variant={vworld ? 'default' : 'outline'}
             size="sm"
             onClick={handleVworld}
             disabled={!VWORLD_KEY}
             title={
               VWORLD_KEY
-                ? '국토교통부 브이월드 위성 3D 지도로 봅니다'
+                ? '위성 영상 3D 지형으로 봅니다 (국토교통부 브이월드)'
                 : 'NEXT_PUBLIC_VWORLD_KEY 가 설정돼 있지 않습니다'
             }
           >
-            <Globe className="size-4" />
-            VW
+            <Box className="size-4" />
+            3D
           </Button>
           <Button
             variant={showParks ? 'default' : 'outline'}
@@ -580,7 +559,6 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
               weather={weather}
               showWeather={showWeather}
               npTrails={showParks ? npTrails : null}
-              threeD={threeD}
               ambient={ambient}
               onViewportChange={setView}
               selectedCourseId={selectedCourseId}
