@@ -92,14 +92,76 @@ function loadScript(src: string): Promise<void> {
  * 가로챈 배열을 for-of 로 도는 것도 의도적이다 — 하위 스크립트가 또 document.write 를 하면
  * 배열에 추가되고, 살아있는 배열을 순회하므로 그것까지 이어서 로드된다.
  */
+
+/** 브이월드가 http 로 심는 리소스를 https 로 올린다. https 배포에서 mixed content 로 차단되기 때문. */
+function forceHttps(url: string): string {
+  return url.replace(/^http:\/\//i, 'https://');
+}
+
+/**
+ * 브이월드 스타일시트를 `vworld` 레이어로 편입시켜 불러온다.
+ *
+ * 그냥 <link> 로 넣으면 안 된다. api.v30.css 에 `* { padding:0; margin:0; border:0 }`
+ * 전역 리셋이 있는데, Tailwind v4 는 유틸리티를 @layer 에 넣기 때문에
+ * **레이어 없는 그 규칙이 특이도와 무관하게 모든 Tailwind 유틸리티를 이긴다.**
+ * 브이월드를 한 번 켜면 앱 전체의 여백과 테두리가 사라진다.
+ *
+ * `@import url(...) layer(vworld)` 를 쓰면 레이어에 가두면서도 원격 CSS 의
+ * 기준 URL 이 유지돼 내부 url() 상대경로가 깨지지 않는다. (내용을 받아 인라인하면 깨진다.)
+ * 레이어 순서는 app/globals.css 최상단에서 선언한다.
+ */
+/**
+ * 브이월드가 head 에 심는 <link rel=stylesheet> 를 감시해 레이어 버전으로 바꿔친다.
+ *
+ * 그쪽 CSS 는 document.write 가 아니라 WSViewerStartup.js 가 createElement('link') 로
+ * 동적 삽입한다. 주입 방식을 추측해 가로채는 대신 head 를 관찰해서 확실히 잡는다.
+ * 관찰은 부팅 동안만 돌리고 끝나면 끊는다.
+ */
+function watchStylesheets(): () => void {
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (!(node instanceof HTMLLinkElement)) continue;
+        if (node.rel !== 'stylesheet') continue;
+        if (!/(^|\.)vworld\.kr$/i.test(new URL(node.href, location.href).hostname)) continue;
+        const href = node.href;
+        node.remove();
+        adoptStylesheet(href);
+      }
+    }
+  });
+  observer.observe(document.head, { childList: true, subtree: true });
+  return () => observer.disconnect();
+}
+
+function adoptStylesheet(href: string): void {
+  const url = forceHttps(href);
+  if (document.querySelector(`style[data-vworld-css="${CSS.escape(url)}"]`)) return;
+
+  const style = document.createElement('style');
+  style.dataset.vworldCss = url;
+  style.textContent = `@import url("${url}") layer(vworld);`;
+  document.head.appendChild(style);
+}
+
 async function boot(apiKey: string): Promise<VworldNamespace> {
   const queued: string[] = [];
+  const stopWatching = watchStylesheets();
   const originalWrite = document.write.bind(document);
 
   document.write = ((markup: string) => {
-    const match = /src=['"]([^'"]+)['"]/.exec(markup);
-    if (match) queued.push(match[1]);
-    else originalWrite(markup);
+    const script = /src=['"]([^'"]+)['"]/.exec(markup);
+    if (script) {
+      queued.push(script[1]);
+      return;
+    }
+    // 브이월드는 <link rel=stylesheet> 도 document.write 로 심는다. 그대로 두면 안 된다.
+    const sheet = /<link[^>]+href=['"]([^'"]+)['"]/i.exec(markup);
+    if (sheet) {
+      adoptStylesheet(sheet[1]);
+      return;
+    }
+    originalWrite(markup);
   }) as typeof document.write;
 
   try {
@@ -111,9 +173,11 @@ async function boot(apiKey: string): Promise<VworldNamespace> {
       throw new Error(globals.vworldErrMsg || '브이월드 인증키가 이 도메인에서 거부되었습니다.');
     }
 
-    for (const src of queued) await loadScript(src);
+    for (const src of queued) await loadScript(forceHttps(src));
   } finally {
     document.write = originalWrite;
+    // 스크립트가 다 붙은 뒤에도 늦게 심는 CSS 가 있을 수 있어 여유를 둔다.
+    setTimeout(stopWatching, 5_000);
   }
 
   const vw = (window as unknown as { vw?: VworldNamespace }).vw;

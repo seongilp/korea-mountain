@@ -55,11 +55,14 @@ function drawTrails(vw: VworldNamespace, lines: TrailLine[]): string[] {
     const geometry = new vw.geom.LineStringZ(points);
     const [r, g, b] = hexToRgb(line.color);
     geometry.setFillColor(new vw.Color(r, g, b, 255));
-    // Cesium 은 지면고정 선의 테두리를 지원하지 않는다("outlines are unsupported on terrain").
-    // 켜 두면 콘솔 경고만 나고 그려지지도 않는다. 그런데 LineStringZ.create 가 보는 값은
-    // outLineVisible 이 아니라 **outlineColor 가 빈 문자열인지**라, 색을 지워야 실제로 꺼진다.
-    geometry.setOutLineVisible(false);
-    geometry.setOutLineColor('');
+    /*
+     * 테두리는 설정하지 않는다. Cesium 은 지면고정 선의 테두리를 지원하지 않아
+     * "outlines are unsupported on terrain" 경고를 한 번 남기고 스스로 꺼 버린다.
+     *
+     * 브이월드 API 로는 이걸 끌 방법이 없다: create() 가 보는 값은 setOutLineVisible 이 세팅하는
+     * 플래그가 아니라 `outlineColor != ""` 인데, setOutLineColor 는 vw.Color 가 아닌 값을 거부한다.
+     * 즉 경고는 무해하고 피할 수도 없다.
+     */
     geometry.setWidth(LINE_WIDTH);
     // 0 이어야 Cesium 의 지면고정(clampToGround) 경로를 타서 지형을 따라 휜다.
     // 0 이 아니면 그 값이 절대 고도가 되어 산속에 박히거나 공중에 뜬다.
@@ -147,9 +150,12 @@ export function VworldMap({ apiKey, bundle, focus, active }: VworldMapProps) {
     if (bounds) {
       const [west, south, east, north] = bounds;
       const spanDeg = Math.max(east - west, north - south);
-      // 산 전체가 화면에 들어올 만큼만 뒤로 뺀다. 실측으로 span 폭 ≈ 카메라 거리라
-      // 1.2배면 여백이 조금 남는다. 더 키우면 산이 점처럼 작아진다.
-      const altM = Math.min(80_000, Math.max(2_500, spanDeg * METERS_PER_DEGREE * 1.2));
+      /*
+       * lookat.moveTo 의 z 는 화면 높이가 아니라 **카메라까지의 거리**다. 실측하면 이 각도에서
+       * 보이는 지면 폭이 z 의 약 3배라, span 을 화면에 담으려면 z ≈ span/3 이어야 한다.
+       * (span 그대로 넣었더니 북한산이 화면의 1/4 로 찍혔다.)
+       */
+      const altM = Math.min(40_000, Math.max(1_500, (spanDeg * METERS_PER_DEGREE) / 2.6));
       map.moveTo(
         new vw.CameraPosition(
           new vw.CoordZ((west + east) / 2, (south + north) / 2, altM),

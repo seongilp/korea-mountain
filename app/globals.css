@@ -1,3 +1,14 @@
+/*
+ * 레이어 순서 선언. 브이월드 CSS 를 가장 낮은 vworld 레이어로 밀어넣기 위한 것이다.
+ *
+ * 브이월드 api.v30.css 에 `* { padding:0; margin:0; border:0 }` 전역 리셋이 있는데,
+ * Tailwind v4 는 유틸리티를 @layer 안에 넣는다. CSS 규칙상 **레이어 없는 스타일이
+ * 레이어 스타일을 특이도와 무관하게 이긴다.** 그대로 두면 브이월드를 한 번 켜는 순간
+ * 앱 전체의 여백·테두리가 날아간다(실제로 겪었다).
+ * lib/vworld.ts 가 그쪽 CSS 를 `@import ... layer(vworld)` 로 불러 이 순서에 편입시킨다.
+ */
+@layer vworld, theme, base, components, utilities;
+
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
