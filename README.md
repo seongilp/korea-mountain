@@ -83,3 +83,10 @@ npm run deploy   # vercel deploy --prod --archive=tgz
 데이터 재생성은 스크립트 실행 순서가 중요하다 — 특히 **GPS 점프 분할 → 단순화** 순서를
 거꾸로 하면 끊김 판정이 26%에서 60%로 부풀어 오른다.
 전체 절차는 [`docs/OPERATIONS.md`](docs/OPERATIONS.md) 를 봐라.
+
+## 배포 트리거
+
+Vercel `korea-mountain` 프로젝트(`seongilp` 스코프)에 GitHub `seongilp/korea-mountain` 이 연동돼 있다.
+`main` 에 푸시하면 프로덕션 배포가 자동으로 나가고 https://korea-mountain.vercel.app 에 반영된다.
+`public/data` 4,616개 파일은 전부 커밋돼 있으므로 Git 빌드에서도 그대로 올라간다 —
+Hobby 플랜의 업로드 개수 제한은 CLI 직접 배포에만 걸리는 문제라 `--archive=tgz` 는 CLI 배포 때만 필요하다.
