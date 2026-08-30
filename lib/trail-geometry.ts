@@ -20,6 +20,29 @@ const DIFFICULTY_STOPS: [number, [number, number, number]][] = [
   [1200, [0xf8, 0x7f, 0x71]],
 ];
 
+/**
+ * 고도 정보가 없는 코스의 색. 난이도 팔레트(초록~빨강) 밖의 중립 회색이다.
+ *
+ * 이게 없으면 누적상승 0 이 팔레트 맨 앞의 초록, 즉 '가장 쉬움' 으로 칠해진다.
+ * 대암산 1코스가 그랬다 — 28.7km 인데 초록이었다. 결측을 0 으로 단언한 셈이라
+ * 사용자를 오도한다. 미상은 미상으로 보여야 한다.
+ */
+export const UNKNOWN_DIFFICULTY_COLOR = '#94a3b8';
+
+/**
+ * 이 코스에 고도 기록이 있나.
+ *
+ * 원본 GPX 고도가 전부 0.0 인 코스가 있다(7,355개 중 1개, 대암산). 그런 코스는
+ * 최고고도와 최저고도가 **둘 다** 정확히 0 이다. 실제 코스라면 해발 0m 를 한 번도
+ * 벗어나지 않는 등산로여야 하는데 그런 건 없으므로, 이 조합을 결측 신호로 쓴다.
+ */
+export function hasElevation(properties: GeoJSON.GeoJsonProperties): boolean {
+  const max = Number(properties?.['최고고도_m']);
+  const min = Number(properties?.['최저고도_m']);
+  if (!Number.isFinite(max) || !Number.isFinite(min)) return false;
+  return !(max === 0 && min === 0);
+}
+
 function toHex(channel: number): string {
   return Math.round(channel).toString(16).padStart(2, '0');
 }
@@ -76,7 +99,9 @@ export function toTrailLines(courses: GeoJSON.FeatureCollection | null | undefin
     if (!geometry) continue;
 
     const gain = Number(feature.properties?.['누적상승_m'] ?? 0);
-    const color = difficultyColor(Number.isFinite(gain) ? gain : 0);
+    const color = hasElevation(feature.properties)
+      ? difficultyColor(Number.isFinite(gain) ? gain : 0)
+      : UNKNOWN_DIFFICULTY_COLOR;
     const courseId = String(feature.properties?.['코스ID'] ?? '');
 
     const strands: GeoJSON.Position[][] =

@@ -21,6 +21,22 @@ export interface MountainSummary {
   hasMyeongsan?: boolean;
 }
 
+/**
+ * 고도를 화면에 쓸 수 있는 값으로. 없으면 '—'.
+ *
+ * `null` 뿐 아니라 **0 도 미상으로 본다.** 원본 GPX 고도가 전부 0.0 인 산이 있어서
+ * (대암산 — 28.7km 코스인데 고도가 통째로 비어 있다) 0 은 '해발 0m' 가 아니라
+ * '기록 없음' 이다. 남한 100대명산·봉우리 중 해발 0m 인 곳은 없으므로
+ * 0 을 미상으로 읽어서 잃는 정보가 없다.
+ *
+ * 데이터(public/data/mountains.json)의 0.0 은 null 로 고쳤지만, 그 파일은 어느
+ * 스크립트도 만들지 않는 수동 관리 파일이다(docs/OPERATIONS.md §1.7). 같은 실수가
+ * 다시 들어와도 화면에서는 0m 로 단언하지 않도록 표시 쪽에서 한 번 더 막는다.
+ */
+export function peakLabel(peakM: number | null | undefined): string {
+  return peakM === null || peakM === undefined || peakM === 0 ? '—' : `${peakM}m`;
+}
+
 export interface MountainBundle {
   name: string;
   courses: GeoJSON.FeatureCollection;

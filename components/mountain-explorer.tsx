@@ -21,12 +21,14 @@ import { Button } from '@/components/ui/button';
 import { DataNotice } from '@/components/data-notice';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { buildProfile } from '@/lib/elevation';
+import { UNKNOWN_DIFFICULTY_COLOR } from '@/lib/trail-geometry';
 import { cn } from '@/lib/utils';
 import { useIsCompact } from '@/lib/use-media-query';
 import {
   courseBundleUrl,
   mountainKey,
   peakCourseUrl,
+  peakLabel,
   type MountainBundle,
   type MountainSummary,
 } from '@/lib/mountains';
@@ -524,7 +526,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
                       <span className="text-muted-foreground flex items-center gap-2 text-[11px]">
                         <span className="flex items-center gap-0.5">
                           <TrendingUp className="size-3" aria-hidden />
-                          {mountain.peakM === null ? '—' : `${mountain.peakM}m`}
+                          {peakLabel(mountain.peakM)}
                         </span>
                         <span className="flex items-center gap-0.5">
                           <Route className="size-3" aria-hidden />
@@ -652,7 +654,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
                     )}
                   </h2>
                   <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-                    {current.peakM === null ? '—' : `${current.peakM}m`}
+                    {peakLabel(current.peakM)}
                   </span>
                 </div>
               }
@@ -709,6 +711,8 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
                 { label: '~700m', color: '#fbbf24' },
                 { label: '~1200m', color: '#fb923c' },
                 { label: '1200m+', color: '#f87171' },
+                // 고도 기록이 없는 코스. 회색이 뜻 없는 색으로 보이지 않게 범례에 남긴다.
+                { label: '고도 미상', color: UNKNOWN_DIFFICULTY_COLOR },
               ].map((item) => (
                 <li key={item.label} className="flex items-center gap-2">
                   <span className="h-1 w-5 rounded-full" style={{ backgroundColor: item.color }} />

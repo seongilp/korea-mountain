@@ -4,6 +4,7 @@ import maplibregl, { type Map as MapLibreMap } from 'maplibre-gl';
 import { useEffect, useRef } from 'react';
 
 import { SNAP_RATIO } from '@/components/bottom-sheet';
+import { UNKNOWN_DIFFICULTY_COLOR } from '@/lib/trail-geometry';
 import { mountainKey, type MountainBundle, type MountainSummary } from '@/lib/mountains';
 
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -177,18 +178,29 @@ export function TrailMap({
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           // 누적상승으로 코스 난이도를 색으로 암시한다.
+          // 단, 고도 기록이 없는 코스는 팔레트 밖 회색으로 뺀다. 누적상승 0 을 그대로
+          // 흘리면 '가장 쉬움' 초록이 되어 28.7km 코스를 쉬운 길로 오독하게 만든다.
           'line-color': [
-            'interpolate',
-            ['linear'],
-            ['coalesce', ['get', '누적상승_m'], 0],
-            0,
-            '#4ade80',
-            300,
-            '#fbbf24',
-            700,
-            '#fb923c',
-            1200,
-            '#f87171',
+            'case',
+            [
+              'all',
+              ['==', ['coalesce', ['get', '최고고도_m'], 0], 0],
+              ['==', ['coalesce', ['get', '최저고도_m'], 0], 0],
+            ],
+            UNKNOWN_DIFFICULTY_COLOR,
+            [
+              'interpolate',
+              ['linear'],
+              ['coalesce', ['get', '누적상승_m'], 0],
+              0,
+              '#4ade80',
+              300,
+              '#fbbf24',
+              700,
+              '#fb923c',
+              1200,
+              '#f87171',
+            ],
           ],
           // maplibre 는 한 표현식에 줌 기반 interpolate 를 두 번 못 쓴다.
           // (layers.course-line.paint.line-width: Only one zoom-based ... may be used)

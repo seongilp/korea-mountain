@@ -6,7 +6,7 @@ import { ElevationProfile } from '@/components/elevation-profile';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import type { ElevationProfile as ElevationProfileData } from '@/lib/elevation';
-import type { MountainBundle, MountainSummary } from '@/lib/mountains';
+import { peakLabel, type MountainBundle, type MountainSummary } from '@/lib/mountains';
 
 /**
  * 코스ID(`설악산_0000000005`)는 사람이 못 읽는다. 번들 안에서의 순번으로 바꿔 보여준다.
@@ -46,7 +46,7 @@ export function MountainStats({
       <dl className="text-muted-foreground grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
         <dt>코스 최고점</dt>
         <dd className="text-foreground text-right">
-          {mountain.peakM === null ? '—' : `${mountain.peakM}m`}
+          {peakLabel(mountain.peakM)}
         </dd>
         <dt>코스 수</dt>
         <dd className="text-foreground text-right">{mountain.courses}개</dd>

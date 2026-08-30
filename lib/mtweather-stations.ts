@@ -448,7 +448,7 @@ export const MT_WEATHER_STATIONS: MtWeatherStation[] = [
   { obsid: 8895, name: '고성 향로봉', lon: 128.17, lat: 34.97, alt: 375 },
   { obsid: 8896, name: '거창 단지봉', lon: 127.99, lat: 35.8, alt: 782 },
   { obsid: 8897, name: '남해 대기봉', lon: 128.02, lat: 34.75, alt: 283 },
-  { obsid: 8898, name: '창녕 영취산(병봉)``', lon: 128.57, lat: 35.48, alt: 567 },
+  { obsid: 8898, name: '창녕 영취산(병봉)', lon: 128.57, lat: 35.48, alt: 567 },
   { obsid: 8899, name: '양산 영취산(시살등)', lon: 129.0, lat: 35.48, alt: 777 },
   { obsid: 8900, name: '울산 능동산', lon: 129.01, lat: 35.58, alt: 939 },
   { obsid: 8901, name: '함안 천주산', lon: 128.59, lat: 35.27, alt: 501 },
