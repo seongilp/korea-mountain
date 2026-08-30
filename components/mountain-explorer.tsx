@@ -15,13 +15,14 @@ import {
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { BottomSheet, type SheetSnap } from '@/components/bottom-sheet';
+import { CourseDetail, MountainStats } from '@/components/mountain-detail';
 import { Button } from '@/components/ui/button';
 import { DataNotice } from '@/components/data-notice';
-import { ElevationProfile } from '@/components/elevation-profile';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { buildProfile } from '@/lib/elevation';
-import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { useIsCompact } from '@/lib/use-media-query';
 import {
   courseBundleUrl,
   mountainKey,
@@ -52,16 +53,6 @@ const VWORLD_KEY = process.env.NEXT_PUBLIC_VWORLD_KEY ?? '';
 /** 사이드바에 한 번에 그리는 최대 개수. 봉우리 데이터는 4,000개가 넘어 전부 그리면 DOM 이 죽는다. */
 const MAX_LIST_ROWS = 200;
 
-/**
- * 코스ID(`설악산_0000000005`)는 사람이 못 읽는다. 번들 안에서의 순번으로 바꿔 보여준다.
- * 원본에 코스 이름이 없어서(100대명산·봉우리 데이터 모두) 순번이 최선이다.
- */
-function courseLabel(bundle: MountainBundle | null, courseId: string | null): string {
-  if (!bundle || !courseId) return '코스';
-  const index = bundle.courses.features.findIndex((f) => f.properties?.['코스ID'] === courseId);
-  return index < 0 ? '코스' : `${index + 1}코스`;
-}
-
 /** 이 줌 아래에서는 주변 등산로를 깔지 않는다. 전국 뷰에서 6,748 코스는 의미도 없고 무겁다. */
 const AMBIENT_MIN_ZOOM = 10.5;
 
@@ -83,6 +74,11 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
   const [observedAt, setObservedAt] = useState<string | null>(null);
   // 모바일에서는 사이드바가 지도를 덮는 시트로 뜬다. lg 이상에서는 이 상태를 쓰지 않는다.
   const [listOpen, setListOpen] = useState(false);
+  /*
+   * 좁은 화면에서는 산 요약·코스 목록·고도 프로파일을 겹쳐 띄우지 않고 바텀시트 하나로 묶는다.
+   * 겹쳐 띄우면 393px 에서 지도에 세로 117px 짜리 띠만 남는다(실측).
+   */
+  const [sheetSnap, setSheetSnap] = useState<SheetSnap>('peek');
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   // 위성 영상만으로는 어느 시군구인지 분간이 안 된다. VW 모드에서만 의미가 있다.
   const [vworldBoundary, setVworldBoundary] = useState(true);
@@ -339,6 +335,18 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
     [source, selected],
   );
 
+  const isCompact = useIsCompact();
+
+  /*
+   * 코스를 고르면 고도 프로파일이 시트 안에 들어가는데, peek(28%) 에서는 안 보인다.
+   * 고르는 순간 한 번만 half 로 올린다. 그 뒤 사용자가 내리면 그대로 둔다.
+   * effect 로 하면 연쇄 렌더가 나므로 선택 핸들러에서 처리한다.
+   */
+  const handleSelectCourse = useCallback((id: string | null) => {
+    setSelectedCourseId(id);
+    if (id) setSheetSnap((snap) => (snap === 'peek' ? 'half' : snap));
+  }, []);
+
   // 3D(브이월드)와 2D(maplibre)는 배타적이다. 둘을 겹쳐 놓으면 어느 쪽을 보는지 알 수 없다.
   const handleVworld = useCallback(() => {
     setVworld((value) => {
@@ -544,9 +552,14 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
         <main className="relative min-w-0 flex-1">
           {/* 안전 고지. 국립공원 레이어를 켰을 때만 강조된다 — 2017년 기준 통제 표시를
               현재 상황으로 오독하는 순간이 실제로 위험하기 때문이다. */}
+          {/*
+            바텀시트가 열리면 그 높이만큼 밀어 올린다. BottomSheet 가 자기 실제 높이를
+            부모(main)의 --sheet-h 로 흘려보내므로 드래그 중에도 따라온다.
+          */}
           <DataNotice
             parkLayerActive={showParks}
-            className="absolute inset-x-4 bottom-4 z-20 mx-auto max-w-2xl md:inset-x-auto md:left-1/2 md:w-[36rem] md:-translate-x-1/2"
+            style={{ bottom: 'calc(var(--sheet-h, 0px) + 1rem)' }}
+            className="absolute inset-x-4 z-20 mx-auto max-w-2xl md:inset-x-auto md:left-1/2 md:w-[36rem] md:-translate-x-1/2"
           />
 
           {/* 두 지도를 겹쳐 두고 표시만 바꾼다. maplibre 를 언마운트하면 뷰포트와 타일 캐시를 잃는다. */}
@@ -561,8 +574,9 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
               npTrails={showParks ? npTrails : null}
               ambient={ambient}
               onViewportChange={setView}
+              compact={isCompact}
               selectedCourseId={selectedCourseId}
-              onSelectCourse={setSelectedCourseId}
+              onSelectCourse={handleSelectCourse}
             />
           </div>
 
@@ -580,9 +594,10 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
             </div>
           )}
 
-          {current && (
+          {/* 데스크톱: 지도 위에 겹치는 패널. 지도가 넓어 겹쳐도 가려지는 면적이 작다. */}
+          {current && !isCompact && (
             <div className="bg-card/90 border-border absolute top-4 left-4 z-10 w-64 rounded-lg border p-3 backdrop-blur">
-              <h2 className="text-sm font-bold">
+              <h2 className="mb-2 text-sm font-bold">
                 {current.name}
                 {current.region && (
                   <span className="text-muted-foreground ml-2 text-xs font-normal">
@@ -590,84 +605,79 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
                   </span>
                 )}
               </h2>
-              <dl className="text-muted-foreground mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
-                <dt>코스 최고점</dt>
-                <dd className="text-foreground text-right">
-                  {current.peakM === null ? '—' : `${current.peakM}m`}
-                </dd>
-                <dt>코스 수</dt>
-                <dd className="text-foreground text-right">{current.courses}개</dd>
-                <dt>총 연장</dt>
-                <dd className="text-foreground text-right">{current.totalKm}km</dd>
-                <dt>최장 코스</dt>
-                <dd className="text-foreground text-right">{current.longestKm}km</dd>
-              </dl>
-              {loading && <Skeleton className="mt-3 h-4 w-full" />}
-              {bundle && !loading && (
-                <>
-                  <p className="text-muted-foreground mt-3 text-xs">
-                    코스 {bundle.courses.features.length}개 · POI {bundle.pois.features.length}개
-                  </p>
-                  {/* 지도에서 선을 정확히 누르기는 어렵다. 특히 모바일에서.
-                      목록으로도 고를 수 있어야 실제로 쓸 수 있다. */}
-                  <ul className="border-border/60 mt-2 max-h-40 space-y-0.5 overflow-y-auto border-t pt-2">
-                    {bundle.courses.features.map((feature) => {
-                      const id = feature.properties?.['코스ID'] as string | undefined;
-                      if (!id) return null;
-                      const km = feature.properties?.['거리_km'] as number | undefined;
-                      const gain = feature.properties?.['누적상승_m'] as number | undefined;
-                      return (
-                        <li key={id}>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedCourseId(id === selectedCourseId ? null : id)}
-                            aria-current={id === selectedCourseId}
-                            className={cn(
-                              'hover:bg-accent/60 flex w-full items-baseline gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors',
-                              id === selectedCourseId && 'bg-accent',
-                            )}
-                          >
-                            <span className="min-w-0 flex-1 truncate">
-                              {courseLabel(bundle, id)}
-                            </span>
-                            <span className="text-muted-foreground shrink-0 tabular-nums">
-                              {km?.toFixed(1) ?? '—'}km
-                            </span>
-                            <span className="text-muted-foreground shrink-0 tabular-nums">
-                              ↗{gain ?? '—'}m
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </>
-              )}
+              <MountainStats
+                mountain={current}
+                bundle={bundle}
+                loading={loading}
+                selectedCourseId={selectedCourseId}
+                onSelectCourse={handleSelectCourse}
+              />
             </div>
           )}
 
-          {/* 개별 코스 상세. 산 요약 패널과 겹치지 않게 아래에 붙인다. */}
-          {profile && selectedCourse && (
-            <div className="bg-card/95 border-border absolute inset-x-4 bottom-20 z-20 rounded-lg border p-3 backdrop-blur md:inset-x-auto md:right-4 md:bottom-24 md:w-[34rem]">
-              <div className="mb-1 flex items-start gap-2">
-                <span className="min-w-0 flex-1 truncate text-sm font-bold">
-                  {(selectedCourse.properties?.['그룹'] as string) ?? ''}{' '}
-                  {courseLabel(bundle, selectedCourseId)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedCourseId(null)}
-                  aria-label="코스 닫기"
-                  className="hover:bg-accent text-muted-foreground rounded-md p-0.5"
-                >
-                  <X className="size-4" />
-                </button>
-              </div>
-              <ElevationProfile
+          {/* 데스크톱: 개별 코스 상세. 산 요약 패널과 겹치지 않게 아래에 붙인다. */}
+          {profile && selectedCourse && !isCompact && (
+            <div className="bg-card/95 border-border absolute right-4 bottom-24 z-20 w-[34rem] rounded-lg border p-3 backdrop-blur">
+              <CourseDetail
+                bundle={bundle}
+                course={selectedCourse}
+                courseId={selectedCourseId}
                 profile={profile}
-                label={`${(selectedCourse.properties?.['거리_km'] as number)?.toFixed(1) ?? '—'}km 코스`}
+                onClose={() => setSelectedCourseId(null)}
               />
             </div>
+          )}
+
+          {/*
+            좁은 화면: 겹치지 않고 바텀시트 하나로 묶는다. 손잡이를 끌거나 탭해서
+            peek(28%)·half(56%)·full(94%) 로 높이를 바꾸고, peek 아래로 끌면 선택이 풀린다.
+          */}
+          {current && isCompact && (
+            <BottomSheet
+              snap={sheetSnap}
+              onSnapChange={setSheetSnap}
+              onDismiss={() => {
+                // 시트를 끝까지 내리면 산 선택 자체를 푼다. 지도만 보고 싶다는 뜻이다.
+                setSelectedCourseId(null);
+                setSelected(null);
+              }}
+              header={
+                <div className="flex items-baseline gap-2 px-3 pb-2">
+                  <h2 className="min-w-0 flex-1 truncate text-sm font-bold">
+                    {current.name}
+                    {current.region && (
+                      <span className="text-muted-foreground ml-2 text-xs font-normal">
+                        {current.region}
+                      </span>
+                    )}
+                  </h2>
+                  <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+                    {current.peakM === null ? '—' : `${current.peakM}m`}
+                  </span>
+                </div>
+              }
+            >
+              <div className="space-y-3 px-3 pb-3">
+                {profile && selectedCourse && (
+                  <CourseDetail
+                    bundle={bundle}
+                    course={selectedCourse}
+                    courseId={selectedCourseId}
+                    profile={profile}
+                    onClose={() => setSelectedCourseId(null)}
+                  />
+                )}
+                <MountainStats
+                  mountain={current}
+                  bundle={bundle}
+                  loading={loading}
+                  selectedCourseId={selectedCourseId}
+                  onSelectCourse={handleSelectCourse}
+                  // 시트가 스크롤을 가지므로 목록 자체는 자르지 않는다.
+                  courseListClassName=""
+                />
+              </div>
+            </BottomSheet>
           )}
 
           <div className="bg-card/85 border-border pointer-events-none absolute bottom-24 left-4 z-10 hidden rounded-lg border p-3 text-xs backdrop-blur sm:bottom-8 sm:block">

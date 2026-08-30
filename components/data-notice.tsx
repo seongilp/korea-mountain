@@ -44,9 +44,11 @@ interface DataNoticeProps {
    */
   parkLayerActive?: boolean;
   className?: string;
+  /** 바텀시트 높이만큼 밀어 올리는 등, 계산된 위치를 넘기기 위한 통로. */
+  style?: React.CSSProperties;
 }
 
-export function DataNotice({ parkLayerActive = false, className }: DataNoticeProps) {
+export function DataNotice({ parkLayerActive = false, className, style }: DataNoticeProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -57,6 +59,7 @@ export function DataNotice({ parkLayerActive = false, className }: DataNoticePro
         parkLayerActive && 'border-amber-500/40 bg-amber-950/40',
         className,
       )}
+      style={style}
       role="note"
     >
       {parkLayerActive ? (

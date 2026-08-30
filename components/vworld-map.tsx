@@ -31,6 +31,18 @@ const MOUNTAIN_TILT_DEG = -55;
 /** 위도 1도의 대략적 거리(m). 카메라 높이를 bbox 로부터 잡을 때만 쓰는 근사치. */
 const METERS_PER_DEGREE = 111_000;
 
+/**
+ * MOUNTAIN_TILT_DEG 각도에서 화면 가로로 보이는 지면 폭 ÷ 카메라 z.
+ *
+ * 실측값이다. z=4,338 을 주고 Cesium 의 pickEllipsoid 로 화면 좌·우 끝을 찍었더니
+ * 12.14km 가 나왔다(12,140/4,338 ≈ 2.8). 2D 뷰포트를 이어받을 때 이 값으로 나누면
+ * 2D 가 보던 가로 폭이 3D 에서도 그대로 나온다.
+ */
+const VIEW_WIDTH_PER_ALT = 2.8;
+
+/** 같은 방식으로 잰 세로 비율. 기울여 보므로 세로가 조금 더 좁다. */
+const VIEW_HEIGHT_PER_ALT = 2.65;
+
 /** 등산로 선 굵기(px). 위성영상 위라 얇으면 묻힌다. */
 /*
  * 위성 영상 위에서는 선이 묻힌다. 영상이 초록·갈색이라 파스텔 난이도 색과 명도가 비슷하다.
@@ -167,6 +179,15 @@ export function VworldMap({
   const drawnWidthRef = useRef<number | null>(null);
   /** ready 직후 첫 카메라 이동이 삼켜지는 경우가 있어 한 번만 재시도한다. */
   const firstMoveDoneRef = useRef(false);
+  /*
+   * 위 재시도가 1.2초 뒤에 같은 좌표를 다시 쏘기 때문에, 그 사이에 더 최신 이동이
+   * 있었다면 옛 좌표로 되돌려 버린다. 이동마다 번호를 매겨 최신 것일 때만 재발행한다.
+   */
+  const moveSeqRef = useRef(0);
+  /** 마지막으로 카메라를 보낸 대상(산·코스). 대상이 바뀌었을 때만 다시 이동한다. */
+  const movedTargetRef = useRef<string | null>(null);
+  /** 직전 렌더의 active. false→true 인 순간이 '2D→3D 전환' 이다. */
+  const wasActiveRef = useRef(false);
   const boundaryRef = useRef<unknown>(null);
   /*
    * 2D 뷰포트는 사용자가 지도를 움직일 때마다 바뀐다. 그때마다 3D 카메라를 옮기면
@@ -255,29 +276,10 @@ export function VworldMap({
   }, [viewport]);
 
   /*
-   * 3D 를 켜는 순간 2D 가 보던 영역으로 카메라를 옮긴다.
-   *
-   * 이게 없으면 관악산처럼 코스가 넓게 퍼진 산에서 2D 로 확대해 보다가 3D 를 켜면
-   * 산 전체 범위로 줌아웃돼 버린다. 사용자가 보던 맥락이 사라진다.
+   * 카메라가 향할 '대상' 의 식별자. 이 값이 바뀌었을 때만 카메라를 옮긴다.
+   * 봉우리 이름은 유일하지 않아(동명 1,915개) 좌표까지 붙여야 실제로 구분된다.
    */
-  useEffect(() => {
-    if (!active || status !== 'ready') return;
-    const vw = vwRef.current;
-    const map = mapRef.current;
-    const view = viewportRef.current;
-    if (!vw || !map || !view) return;
-
-    const [west, south, east, north] = view.bounds;
-    const spanDeg = Math.max(east - west, north - south);
-    const altM = Math.min(400_000, Math.max(800, (spanDeg * METERS_PER_DEGREE) / 2.6));
-
-    map.moveTo(
-      new vw.CameraPosition(
-        new vw.CoordZ((west + east) / 2, (south + north) / 2, altM),
-        new vw.Direction(0, MOUNTAIN_TILT_DEG, 0),
-      ),
-    );
-  }, [active, status]);
+  const cameraTarget = `${bundle?.name ?? ''}|${focus ? `${focus.lon},${focus.lat}` : ''}|${selectedCourseId ?? ''}`;
 
   /* 행정경계 오버레이 */
   useEffect(() => {
@@ -307,23 +309,87 @@ export function VworldMap({
     const heightM = cameraHeightM();
     drawnWidthRef.current = widthsFor(heightM).width;
     if (lines.length > 0) drawnRef.current = drawTrails(vw, lines, selectedCourseId, heightM);
+  }, [bundle, focus, status, selectedCourseId]);
+
+  /*
+   * 카메라 이동. 위 그리기 effect 와 분리해 둔 이유가 있다.
+   *
+   * 예전에는 '2D 뷰포트 인계' 와 '선택 대상으로 이동' 이 별개의 effect 였고, status 가
+   * 'ready' 로 바뀌는 첫 순간에만 둘 다 걸려서 나중에 선언된 대상 이동이 인계를 덮어썼다.
+   * (첫 3D 전환에서만 줌아웃되고 두 번째부터는 멀쩡했던 이유가 이것이다.)
+   * 그래서 카메라를 건드리는 곳을 여기 하나로 합치고, 두 경우를 명시적으로 가른다.
+   *
+   *   1. 2D→3D 전환(active false→true): 사용자가 보던 화면을 그대로 이어받는다.
+   *   2. 3D 인 채로 산·코스가 바뀜: 그 대상으로 이동한다.
+   *
+   * 대상 변경 여부는 movedTargetRef 로 판정한다. 전환 순간에는 대상도 함께 '바뀐 것처럼'
+   * 보이지만(숨어 있는 동안 고른 산이므로), 그건 2D 가 이미 보여주던 산이라 인계가 옳다.
+   */
+  useEffect(() => {
+    if (status !== 'ready') return;
+
+    const justActivated = active && !wasActiveRef.current;
+    wasActiveRef.current = active;
+    // 숨어 있는 동안에는 카메라를 옮기지 않는다. 대상 기록도 남기지 않아야
+    // 다시 보일 때 (뷰포트가 없으면) 그 대상으로 갈 수 있다.
+    if (!active) return;
+
+    const vw = vwRef.current;
+    const map = mapRef.current;
+    if (!vw || !map) return;
 
     /*
      * ready 직후의 첫 moveTo 가 무시되는 일이 있다. waitForGlobe 가 tilesLoaded 를 보고
      * 통과시키는데, 그 시점에도 카메라 컨트롤러가 아직 flyTo 를 받지 못하는 순간이 있다.
      * (지리산을 고르고 VW 를 켜면 전국 뷰 900km 에 그대로 머물렀다.)
      * 두 번째 이동부터는 정상이므로, 첫 이동만 한 박자 뒤에 한 번 더 보낸다.
+     * 단, 그 사이 더 최신 이동이 있었으면 옛 좌표로 되돌리지 않는다.
      */
     const move = (position: VwCameraPosition) => {
+      const seq = ++moveSeqRef.current;
       map.moveTo(position);
       if (firstMoveDoneRef.current) return;
       firstMoveDoneRef.current = true;
       window.setTimeout(() => {
-        if (mapRef.current === map) map.moveTo(position);
+        if (mapRef.current === map && moveSeqRef.current === seq) map.moveTo(position);
       }, 1_200);
     };
 
-    const bounds = boundsOf(lines);
+    // 1. 2D→3D 전환: 2D 가 보던 영역을 그대로 이어받는다. 산을 고르지 않았어도 마찬가지다.
+    const view = viewportRef.current;
+    if (justActivated && view) {
+      movedTargetRef.current = cameraTarget;
+      const [west, south, east, north] = view.bounds;
+      /*
+       * 경도 1도의 거리는 위도에 따라 줄어든다. 도(degree) 로만 비교하면 남한 위도에서
+       * 가로 폭을 1.26배쯤 과대평가해 그만큼 줌아웃된다. 미터로 환산해서 비교한다.
+       */
+      const midLatRad = (((south + north) / 2) * Math.PI) / 180;
+      const widthM = (east - west) * METERS_PER_DEGREE * Math.cos(midLatRad);
+      const heightM = (north - south) * METERS_PER_DEGREE;
+      /*
+       * 하한 800m 은 그대로 둔다. 400m 까지 내려 보니 설악산처럼 지형이 높은 곳에서
+       * 화면이 통째로 비었다(위성 영상 없이 초록 단색). 그래서 축척 50m 이하로
+       * 확대한 2D 는 3D 에서 약 2.2km 폭까지만 따라간다 — 브이월드 쪽 한계다.
+       */
+      const altM = Math.min(
+        400_000,
+        Math.max(800, widthM / VIEW_WIDTH_PER_ALT, heightM / VIEW_HEIGHT_PER_ALT),
+      );
+      move(
+        new vw.CameraPosition(
+          new vw.CoordZ((west + east) / 2, (south + north) / 2, altM),
+          new vw.Direction(0, MOUNTAIN_TILT_DEG, 0),
+        ),
+      );
+      return;
+    }
+
+    // 2. 대상이 그대로면 카메라도 그대로 둔다. 사용자가 3D 에서 돌려본 각도를 뺏지 않는다.
+    if (movedTargetRef.current === cameraTarget) return;
+    movedTargetRef.current = cameraTarget;
+
+    const bounds = boundsOf(linesRef.current);
     if (bounds) {
       const [west, south, east, north] = bounds;
       const spanDeg = Math.max(east - west, north - south);
@@ -354,7 +420,7 @@ export function VworldMap({
         ),
       );
     }
-  }, [bundle, focus, status, selectedCourseId]);
+  }, [active, status, cameraTarget, focus]);
 
   /* 숨어 있는 동안 컨테이너 크기가 0 이었으므로, 다시 보일 때 캔버스를 재계산한다. */
   useEffect(() => {

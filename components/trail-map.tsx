@@ -3,6 +3,7 @@
 import maplibregl, { type Map as MapLibreMap } from 'maplibre-gl';
 import { useEffect, useRef } from 'react';
 
+import { SNAP_RATIO } from '@/components/bottom-sheet';
 import { mountainKey, type MountainBundle, type MountainSummary } from '@/lib/mountains';
 
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -53,6 +54,11 @@ interface TrailMapProps {
   onSelectCourse: (courseId: string | null) => void;
   /** 지도가 멈출 때 현재 보이는 영역을 알려준다. 뷰포트 기준 지연 로딩에 쓴다. */
   onViewportChange: (view: { bounds: [number, number, number, number]; zoom: number }) => void;
+  /**
+   * 좁은 화면 여부. 하단을 바텀시트가 덮으므로 코스를 화면에 맞출 때 그만큼 비워 둔다.
+   * 이게 없으면 산을 고르는 순간 코스가 시트 뒤로 들어가 아무것도 안 보인다.
+   */
+  compact?: boolean;
 }
 
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -66,6 +72,7 @@ export function TrailMap({
   showWeather,
   npTrails,
   ambient,
+  compact = false,
   onViewportChange,
   selectedCourseId,
   onSelectCourse,
@@ -346,6 +353,15 @@ export function TrailMap({
     });
 
     const notifyViewport = () => {
+      /*
+       * 3D 로 전환하면 이 지도는 CSS 로 숨겨져 컨테이너가 0x0 이 되고, 그때 maplibre 가
+       * resize→moveend 를 한 번 더 쏜다. 그 bounds 는 실제로 보이던 영역이 아니라
+       * 찌그러진 값이라, 3D 가 뷰포트를 이어받을 때 엉뚱한 고도로 간다.
+       * 화면에서 사라진 순간의 값은 버리고, 마지막으로 보이던 값을 그대로 남긴다.
+       */
+      const canvas = map.getCanvas();
+      if (canvas.clientWidth === 0 || canvas.clientHeight === 0) return;
+
       const b = map.getBounds();
       onViewportRef.current({
         bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()],
@@ -483,12 +499,19 @@ export function TrailMap({
         }
       }
       if (bounds.isEmpty()) return;
-      map.fitBounds(bounds, { padding: 60, duration: 600 });
+      /*
+       * 시트는 peek(28%) 로 열린다. 그 높이만큼 아래 여백을 주면 코스가 시트 위쪽,
+       * 즉 실제로 보이는 영역 한가운데에 놓인다.
+       */
+      const bottom = compact
+        ? Math.round(map.getContainer().clientHeight * SNAP_RATIO.peek) + 60
+        : 60;
+      map.fitBounds(bounds, { padding: { top: 60, left: 60, right: 60, bottom }, duration: 600 });
     };
 
     if (loadedRef.current) apply();
     else map.once('idle', apply);
-  }, [bundle]);
+  }, [bundle, compact]);
 
   /* 주변 등산로 */
   useEffect(() => {
