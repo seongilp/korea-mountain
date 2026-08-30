@@ -90,3 +90,7 @@ Vercel `korea-mountain` 프로젝트(`seongilp` 스코프)에 GitHub `seongilp/k
 `main` 에 푸시하면 프로덕션 배포가 자동으로 나가고 https://korea-mountain.vercel.app 에 반영된다.
 `public/data` 4,616개 파일은 전부 커밋돼 있으므로 Git 빌드에서도 그대로 올라간다 —
 Hobby 플랜의 업로드 개수 제한은 CLI 직접 배포에만 걸리는 문제라 `--archive=tgz` 는 CLI 배포 때만 필요하다.
+
+`korea-mountain.vercel.app` 은 한동안 프로젝트에 **할당되지 않은 수동 별칭**이었다.
+`vercel alias set` 으로만 붙인 도메인은 새 배포를 따라가지 않아서, 배포는 성공했는데
+주소는 옛 배포를 가리키는 상태가 된다. 지금은 프로젝트 도메인으로 등록해 자동으로 따라간다.
