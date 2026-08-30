@@ -43,12 +43,22 @@ interface DataNoticeProps {
    * 켜졌을 때만 배너를 경고색으로 올린다. 항상 빨간 배너를 띄우면 경고가 배경이 된다.
    */
   parkLayerActive?: boolean;
+  /**
+   * 선택한 산에만 붙는 부가 안내 한 줄. 통제로 코스가 안 이어지는 산에서
+   * "끊겼다"는 오해를 막는다. 없으면 이 줄은 렌더되지 않는다.
+   */
+  mountainNote?: string;
   className?: string;
   /** 바텀시트 높이만큼 밀어 올리는 등, 계산된 위치를 넘기기 위한 통로. */
   style?: React.CSSProperties;
 }
 
-export function DataNotice({ parkLayerActive = false, className, style }: DataNoticeProps) {
+export function DataNotice({
+  parkLayerActive = false,
+  mountainNote,
+  className,
+  style,
+}: DataNoticeProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -68,17 +78,26 @@ export function DataNotice({ parkLayerActive = false, className, style }: DataNo
         <Info className="text-muted-foreground mt-0.5 size-3.5 shrink-0" aria-hidden />
       )}
 
-      <p className="text-muted-foreground min-w-0 leading-relaxed">
-        {parkLayerActive ? (
-          <>
-            <span className="text-amber-200">통제 표시는 2017년 기준입니다.</span> 현재 통제 상황과
-            다를 수 있으니 산행 전 국립공원공단에서 확인하세요.
-          </>
-        ) : (
-          <>등산로는 과거 기록 기반이며 실시간 통제 정보가 아닙니다.</>
-        )}{' '}
-        <DataNoticeDialog open={open} onOpenChange={setOpen} />
-      </p>
+      <div className="min-w-0 flex-1 space-y-1">
+        <p className="text-muted-foreground leading-relaxed">
+          {parkLayerActive ? (
+            <>
+              <span className="text-amber-200">통제 표시는 2017년 기준입니다.</span> 현재 통제 상황과
+              다를 수 있으니 산행 전 국립공원공단에서 확인하세요.
+            </>
+          ) : (
+            <>등산로는 과거 기록 기반이며 실시간 통제 정보가 아닙니다.</>
+          )}{' '}
+          <DataNoticeDialog open={open} onOpenChange={setOpen} />
+        </p>
+
+        {/* 선택한 산 한정 부가 안내. 통제로 코스가 안 이어지는 산에서만 뜬다. */}
+        {mountainNote ? (
+          <p className="text-muted-foreground/90 border-border/60 border-t pt-1 leading-relaxed">
+            {mountainNote}
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }

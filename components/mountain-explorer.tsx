@@ -19,6 +19,7 @@ import { BottomSheet, type SheetSnap } from '@/components/bottom-sheet';
 import { CourseDetail, MountainStats } from '@/components/mountain-detail';
 import { Button } from '@/components/ui/button';
 import { DataNotice } from '@/components/data-notice';
+import { mountainNote } from '@/lib/mountain-notes';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { buildProfile } from '@/lib/elevation';
 import { UNKNOWN_DIFFICULTY_COLOR } from '@/lib/trail-geometry';
@@ -560,6 +561,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
           */}
           <DataNotice
             parkLayerActive={showParks}
+            mountainNote={mountainNote(current?.name, dataset === 'myeongsan')}
             style={{ bottom: 'calc(var(--sheet-h, 0px) + 1rem)' }}
             className="absolute inset-x-4 z-20 mx-auto max-w-2xl md:inset-x-auto md:left-1/2 md:w-[36rem] md:-translate-x-1/2"
           />
