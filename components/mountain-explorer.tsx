@@ -19,6 +19,7 @@ import { BottomSheet, type SheetSnap } from '@/components/bottom-sheet';
 import { CourseDetail, MountainStats } from '@/components/mountain-detail';
 import { Button } from '@/components/ui/button';
 import { DataNotice } from '@/components/data-notice';
+import { ElevationDot, ElevationLegend } from '@/components/elevation-legend';
 import { mountainNote } from '@/lib/mountain-notes';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { buildProfile } from '@/lib/elevation';
@@ -514,6 +515,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
                       selected === mountainKey(mountain) && 'bg-accent',
                     )}
                   >
+                    <ElevationDot elevationM={mountain.peakM} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm">
                         {mountain.name}
@@ -684,7 +686,13 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
             </BottomSheet>
           )}
 
+          {/* 좁은 화면: 하단은 안내 배너·바텀시트가 차지하므로 고도 범례만 왼쪽 위에 가로로 놓는다. */}
+          <div className="bg-card/85 border-border pointer-events-none absolute top-3 left-3 z-10 rounded-md border px-2 py-1.5 text-[11px] backdrop-blur sm:hidden">
+            <ElevationLegend compact />
+          </div>
+
           <div className="bg-card/85 border-border pointer-events-none absolute bottom-24 left-4 z-10 hidden rounded-lg border p-3 text-xs backdrop-blur sm:bottom-8 sm:block">
+            <ElevationLegend className="border-border/60 mb-2 border-b pb-2" />
             <p className="text-muted-foreground mb-2 font-medium">코스 난이도 (누적 상승)</p>
             {showParks && npStats && (
               <div className="border-border/60 mb-2 border-b pb-2">

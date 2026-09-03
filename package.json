@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --experimental-strip-types --test lib/*.test.mjs",
     "deploy": "vercel deploy --prod --archive=tgz",
     "deploy:preview": "vercel deploy --archive=tgz",
     "data:np-geojson": "python3 data/scripts/np_trail_to_geojson.py",

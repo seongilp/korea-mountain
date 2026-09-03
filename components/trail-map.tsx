@@ -4,6 +4,7 @@ import maplibregl, { type Map as MapLibreMap } from 'maplibre-gl';
 import { useEffect, useRef } from 'react';
 
 import { SNAP_RATIO } from '@/components/bottom-sheet';
+import { elevationStepExpression } from '@/lib/elevation-color';
 import { UNKNOWN_DIFFICULTY_COLOR } from '@/lib/trail-geometry';
 import { mountainKey, type MountainBundle, type MountainSummary } from '@/lib/mountains';
 
@@ -308,12 +309,13 @@ export function TrailMap({
             1950,
             9,
           ],
+          // 고도 구간별 색(lib/elevation-color.ts). 선택된 산만 토스 블루로 덮는다.
           'circle-color': [
             'case',
             ['boolean', ['feature-state', 'selected'], false],
             '#3182f6',
-            '#e2e8f0',
-          ],
+            elevationStepExpression('elevation'),
+          ] as unknown as maplibregl.ExpressionSpecification,
           'circle-stroke-width': 1.2,
           'circle-stroke-color': '#0b0f0d',
         },
@@ -470,6 +472,8 @@ export function TrailMap({
             key: mountainKey(m),
             name: m.name,
             peakM: m.peakM,
+            // circle-color step 표현식이 읽는 속성. peakM 과 같은 값(코스 최고점).
+            elevation: m.peakM,
             courses: m.courses,
           },
         })),
