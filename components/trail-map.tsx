@@ -13,7 +13,9 @@ import {
   POI_MIN_ZOOM,
   type PoiCategory,
 } from '@/lib/poi-category';
+import { trackBounds, type ParsedTrack } from '@/lib/gpx';
 import { UNKNOWN_DIFFICULTY_COLOR } from '@/lib/trail-geometry';
+import { addUserTrackLayers, setUserTrackData } from '@/lib/user-track-layer';
 import { mountainKey, type MountainBundle, type MountainSummary } from '@/lib/mountains';
 
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -92,6 +94,10 @@ interface TrailMapProps {
   onSelectCourse: (courseId: string | null) => void;
   /** 지도에 그릴 POI 카테고리. 비어 있으면 POI 를 전부 숨긴다. */
   visiblePoiCategories: readonly PoiCategory[];
+  /** 사용자가 올린 GPX/KML 트랙. 산 선택과 무관하게 따로 그린다. */
+  userTrack?: ParsedTrack | null;
+  /** 트랙을 (다시) 올릴 때마다 증가. 같은 트랙을 다시 올려도 화면 맞춤이 한 번 더 돈다. */
+  userTrackRevision?: number;
   /** 지도가 멈출 때 현재 보이는 영역을 알려준다. 뷰포트 기준 지연 로딩에 쓴다. */
   onViewportChange: (view: { bounds: [number, number, number, number]; zoom: number }) => void;
   /**
@@ -102,6 +108,9 @@ interface TrailMapProps {
 }
 
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
+
+/** mountain-explorer 의 데스크톱 '내 트랙' 카드 폭(w-[26rem]). 화면 맞춤 여백 계산용. */
+const USER_TRACK_CARD_PX = 26 * 16;
 
 /** 팝업은 setHTML 로 그리므로 데이터에서 온 문자열은 이스케이프한다. */
 function escapeHtml(text: string): string {
@@ -127,6 +136,8 @@ export function TrailMap({
   selectedCourseId,
   onSelectCourse,
   visiblePoiCategories,
+  userTrack = null,
+  userTrackRevision = 0,
 }: TrailMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -279,6 +290,9 @@ export function TrailMap({
           ],
         },
       });
+
+      // 사용자 트랙. 코스 위, POI·봉우리 아래 — 점은 계속 눌러야 하니 선이 덮으면 안 된다.
+      addUserTrackLayers(map);
 
       // 코스 POI. 색은 lib/poi-category.ts 의 카테고리 표를 그대로 쓴다.
       // 원본 `종류` 는 POI 마다 유일한 코드라 여기서는 안 본다. 위험 지점은 한 단계 크게 그린다.
@@ -615,6 +629,34 @@ export function TrailMap({
     if (loadedRef.current) apply();
     else map.once('idle', apply);
   }, [bundle, compact]);
+
+  /* 사용자 트랙 + 화면 이동. 선택 산 코스와 같은 padding 규칙을 쓴다. */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const apply = () => {
+      setUserTrackData(map, userTrack);
+      if (!userTrack) return;
+      const [west, south, east, north] = trackBounds(userTrack);
+      const bottom = compact
+        ? Math.round(map.getContainer().clientHeight * SNAP_RATIO.peek) + 60
+        : 60;
+      // 데스크톱은 우상단 '내 트랙' 카드(26rem)가 지도를 덮는다. 그만큼 오른쪽을 비워야 끝점이 안 가려진다.
+      const right = compact ? 60 : USER_TRACK_CARD_PX + 60;
+      map.fitBounds(
+        [
+          [west, south],
+          [east, north],
+        ],
+        { padding: { top: 60, left: 60, right, bottom }, duration: 600, maxZoom: 15 },
+      );
+    };
+
+    if (loadedRef.current) apply();
+    else map.once('idle', apply);
+    // revision 은 같은 트랙을 다시 올렸을 때 화면 맞춤을 다시 돌리기 위한 신호다.
+  }, [userTrack, userTrackRevision, compact]);
 
   /* 주변 등산로 */
   useEffect(() => {

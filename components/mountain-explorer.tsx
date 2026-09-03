@@ -1,17 +1,6 @@
 'use client';
 
-import {
-  Box,
-  List,
-  Map as MapIcon,
-  Mountain,
-  Route,
-  Search,
-  Thermometer,
-  TreePine,
-  TrendingUp,
-  X,
-} from 'lucide-react';
+import { Box, List, Map as MapIcon, Mountain, Search, Thermometer, TreePine } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -19,10 +8,13 @@ import { BottomSheet, type SheetSnap } from '@/components/bottom-sheet';
 import { CourseDetail, MountainStats } from '@/components/mountain-detail';
 import { Button } from '@/components/ui/button';
 import { DataNotice } from '@/components/data-notice';
-import { ElevationDot, ElevationLegend } from '@/components/elevation-legend';
+import { ElevationLegend } from '@/components/elevation-legend';
+import { MapLegend, type NpStats } from '@/components/map-legend';
+import { MountainList } from '@/components/mountain-list';
 import { PoiFilter } from '@/components/poi-filter';
+import { TrackUploadButton } from '@/components/track-upload-button';
+import { UserTrackCard } from '@/components/user-track-card';
 import { mountainNote } from '@/lib/mountain-notes';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { buildProfile } from '@/lib/elevation';
 import {
   DEFAULT_VISIBLE_CATEGORIES,
@@ -31,9 +23,9 @@ import {
   withPoiCategories,
   type PoiCategory,
 } from '@/lib/poi-category';
-import { UNKNOWN_DIFFICULTY_COLOR } from '@/lib/trail-geometry';
 import { cn } from '@/lib/utils';
 import { useIsCompact } from '@/lib/use-media-query';
+import { useUserTrack } from '@/lib/use-user-track';
 import {
   courseBundleUrl,
   mountainKey,
@@ -127,11 +119,17 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
   // 캐시에 넣는 시점에 카테고리를 붙여 두므로 이후에는 재계산하지 않는다.
   const bundleCache = useRef(new Map<string, MountainBundle>());
 
-  const [npStats, setNpStats] = useState<{
-    courses: number;
-    closed: number;
-    parks: number;
-  } | null>(null);
+  const [npStats, setNpStats] = useState<NpStats | null>(null);
+
+  /*
+   * 사용자 GPX/KML 트랙. 산 선택과 독립이라 둘 다 있으면 둘 다 보인다.
+   * 파일은 브라우저 안에서만 읽는다 — 훅 안에 fetch 가 없다는 게 그 약속이다.
+   */
+  const { track: userTrack, revision: userTrackRevision, importFile, clear: clearTrack } =
+    useUserTrack(setError);
+  const [dragging, setDragging] = useState(false);
+  // 좁은 화면에서 트랙만 있을 때 시트를 끝까지 내리면 트랙을 지우지 않고 시트만 숨긴다.
+  const [trackSheetHidden, setTrackSheetHidden] = useState(false);
 
   // 봉우리 인덱스는 탭을 켤 때 한 번만 받는다.
   useEffect(() => {
@@ -444,6 +442,33 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
     [current],
   );
 
+  const handleTrackFile = useCallback(
+    (file: File | undefined) => {
+      if (!file) return;
+      setTrackSheetHidden(false);
+      void importFile(file);
+    },
+    [importFile],
+  );
+
+  // 지도 위에 파일을 떨어뜨려도 받는다. 드래그 중에는 살짝 표시해 "여기 놓아도 된다" 를 알린다.
+  const handleDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      setDragging(false);
+      handleTrackFile(event.dataTransfer.files?.[0]);
+    },
+    [handleTrackFile],
+  );
+  const handleDragOver = useCallback((event: React.DragEvent) => {
+    if (!event.dataTransfer.types.includes('Files')) return;
+    event.preventDefault();
+    if (!dragging) setDragging(true);
+  }, [dragging]);
+
+  // 좁은 화면 시트는 산과 트랙 중 하나라도 있으면 뜬다. 트랙만 있고 사용자가 내렸으면 숨긴다.
+  const sheetVisible = isCompact && (current !== null || (userTrack !== null && !trackSheetHidden));
+
   return (
     <div className="flex h-dvh flex-col">
       <header className="border-border flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-3">
@@ -522,6 +547,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
             <TreePine className="size-4" />
             국립공원
           </Button>
+          <TrackUploadButton active={userTrack !== null} onFile={handleTrackFile} />
           <Button
             variant={showWeather ? 'default' : 'outline'}
             size="sm"
@@ -561,78 +587,23 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
           />
         )}
 
-        <nav
-          className={cn(
-            'border-border bg-background w-64 shrink-0 border-r',
-            // lg 미만에서는 지도 위로 떠오르는 시트. 닫히면 화면 밖으로 밀어낸다.
-            'absolute inset-y-0 left-0 z-40 transition-transform lg:static lg:z-auto lg:translate-x-0',
-            listOpen ? 'translate-x-0' : '-translate-x-full',
-          )}
-        >
-          <div className="border-border flex items-center justify-between border-b px-4 py-2 lg:hidden">
-            <span className="text-sm font-medium">{filtered.length.toLocaleString()}곳</span>
-            <button
-              type="button"
-              onClick={() => setListOpen(false)}
-              aria-label="목록 닫기"
-              className="hover:bg-accent text-muted-foreground rounded-md p-1"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
-          <ScrollArea className="h-full">
-            <ul className="divide-border/60 divide-y">
-              {visible.map((mountain) => (
-                <li key={mountainKey(mountain)}>
-                  <button
-                    type="button"
-                    onClick={() => handleSelect(mountainKey(mountain))}
-                    aria-current={selected === mountainKey(mountain)}
-                    className={cn(
-                      'hover:bg-accent/60 flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors',
-                      selected === mountainKey(mountain) && 'bg-accent',
-                    )}
-                  >
-                    <ElevationDot elevationM={mountain.peakM} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm">
-                        {mountain.name}
-                        {mountain.region && (
-                          // 동명 봉우리가 1,915개라 지역 없이는 목록에서 구분이 안 된다.
-                          <span className="text-muted-foreground ml-1.5 text-[11px]">
-                            {mountain.region}
-                          </span>
-                        )}
-                      </span>
-                      <span className="text-muted-foreground flex items-center gap-2 text-[11px]">
-                        <span className="flex items-center gap-0.5">
-                          <TrendingUp className="size-3" aria-hidden />
-                          {peakLabel(mountain.peakM)}
-                        </span>
-                        <span className="flex items-center gap-0.5">
-                          <Route className="size-3" aria-hidden />
-                          {mountain.courses}
-                        </span>
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-              {filtered.length === 0 && (
-                <li className="text-muted-foreground px-4 py-6 text-center text-sm">
-                  {dataset === 'peaks' && !peaks ? '불러오는 중…' : '검색 결과가 없습니다.'}
-                </li>
-              )}
-              {hidden > 0 && (
-                <li className="text-muted-foreground px-4 py-3 text-center text-xs">
-                  외 {hidden.toLocaleString()}곳 — 검색으로 좁혀보세요
-                </li>
-              )}
-            </ul>
-          </ScrollArea>
-        </nav>
+        <MountainList
+          visible={visible}
+          total={filtered.length}
+          hidden={hidden}
+          selected={selected}
+          open={listOpen}
+          loadingHint={dataset === 'peaks' && !peaks}
+          onSelect={handleSelect}
+          onClose={() => setListOpen(false)}
+        />
 
-        <main className="relative min-w-0 flex-1">
+        <main
+          className={cn('relative min-w-0 flex-1', dragging && 'ring-primary/60 ring-2 ring-inset')}
+          onDragOver={handleDragOver}
+          onDragLeave={() => setDragging(false)}
+          onDrop={handleDrop}
+        >
           {/* 안전 고지. 국립공원 레이어를 켰을 때만 강조된다 — 2017년 기준 통제 표시를
               현재 상황으로 오독하는 순간이 실제로 위험하기 때문이다. */}
           {/*
@@ -663,6 +634,8 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
               selectedCourseId={selectedCourseId}
               onSelectCourse={handleSelectCourse}
               visiblePoiCategories={poiVisible}
+              userTrack={userTrack}
+              userTrackRevision={userTrackRevision}
             />
           </div>
 
@@ -732,36 +705,56 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
             </div>
           )}
 
+          {/* 데스크톱: 내 트랙 카드. 우상단(줌 컨트롤 왼쪽). 산 패널(좌상단)·코스 상세(우하단)와
+              안 겹치게 남은 모서리를 쓴다. 고도 프로파일이 읽히려면 폭이 26rem 은 돼야 한다. */}
+          {userTrack && !isCompact && (
+            <div className="bg-card/90 border-border absolute top-4 right-14 z-10 w-[26rem] rounded-lg border p-3 backdrop-blur">
+              <UserTrackCard track={userTrack} onClear={clearTrack} />
+            </div>
+          )}
+
           {/*
             좁은 화면: 겹치지 않고 바텀시트 하나로 묶는다. 손잡이를 끌거나 탭해서
             peek(28%)·half(56%)·full(94%) 로 높이를 바꾸고, peek 아래로 끌면 선택이 풀린다.
           */}
-          {current && isCompact && (
+          {sheetVisible && (
             <BottomSheet
               snap={sheetSnap}
               onSnapChange={setSheetSnap}
               onDismiss={() => {
                 // 시트를 끝까지 내리면 산 선택 자체를 푼다. 지도만 보고 싶다는 뜻이다.
+                // 트랙만 있을 때는 트랙을 지우지 않고(파일을 다시 고르게 만들면 안 된다) 시트만 숨긴다.
                 setSelectedCourseId(null);
                 setSelected(null);
+                setTrackSheetHidden(true);
               }}
               header={
                 <div className="flex items-baseline gap-2 px-3 pb-2">
                   <h2 className="min-w-0 flex-1 truncate text-sm font-bold">
-                    {current.name}
-                    {current.region && (
+                    {/* 트랙만 있을 때 카드가 이름을 또 보여주므로 헤더는 구분 라벨만. */}
+                    {current ? current.name : '내 트랙'}
+                    {current?.region && (
                       <span className="text-muted-foreground ml-2 text-xs font-normal">
                         {current.region}
                       </span>
                     )}
                   </h2>
-                  <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-                    {peakLabel(current.peakM)}
-                  </span>
+                  {current && (
+                    <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+                      {peakLabel(current.peakM)}
+                    </span>
+                  )}
                 </div>
               }
             >
               <div className="space-y-3 px-3 pb-3">
+                {userTrack && (
+                  <UserTrackCard
+                    track={userTrack}
+                    onClear={clearTrack}
+                    className={cn(current && 'border-border/60 border-b pb-3')}
+                  />
+                )}
                 {profile && selectedCourse && (
                   <CourseDetail
                     bundle={bundle}
@@ -771,15 +764,17 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
                     onClose={() => setSelectedCourseId(null)}
                   />
                 )}
-                <MountainStats
-                  mountain={current}
-                  bundle={bundle}
-                  loading={loading}
-                  selectedCourseId={selectedCourseId}
-                  onSelectCourse={handleSelectCourse}
-                  // 시트가 스크롤을 가지므로 목록 자체는 자르지 않는다.
-                  courseListClassName=""
-                />
+                {current && (
+                  <MountainStats
+                    mountain={current}
+                    bundle={bundle}
+                    loading={loading}
+                    selectedCourseId={selectedCourseId}
+                    onSelectCourse={handleSelectCourse}
+                    // 시트가 스크롤을 가지므로 목록 자체는 자르지 않는다.
+                    courseListClassName=""
+                  />
+                )}
               </div>
             </BottomSheet>
           )}
@@ -789,46 +784,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
             <ElevationLegend compact />
           </div>
 
-          <div className="bg-card/85 border-border pointer-events-none absolute bottom-24 left-4 z-10 hidden rounded-lg border p-3 text-xs backdrop-blur sm:bottom-8 sm:block">
-            <ElevationLegend className="border-border/60 mb-2 border-b pb-2" />
-            <p className="text-muted-foreground mb-2 font-medium">코스 난이도 (누적 상승)</p>
-            {showParks && npStats && (
-              <div className="border-border/60 mb-2 border-b pb-2">
-                <p className="text-muted-foreground mb-1.5 font-medium">
-                  국립공원 {npStats.parks}곳 탐방로
-                </p>
-                <p className="flex items-center gap-2">
-                  <span className="h-1 w-5 rounded-full" style={{ backgroundColor: '#22d3ee' }} />
-                  탐방가능 {npStats.courses - npStats.closed}
-                </p>
-                <p className="mt-1 flex items-center gap-2">
-                  <span
-                    className="h-1 w-5 rounded-full"
-                    style={{
-                      backgroundImage:
-                        'repeating-linear-gradient(90deg,#f87171 0 4px,transparent 4px 7px)',
-                    }}
-                  />
-                  통제 {npStats.closed}
-                </p>
-              </div>
-            )}
-            <ul className="space-y-1.5">
-              {[
-                { label: '~300m', color: '#4ade80' },
-                { label: '~700m', color: '#fbbf24' },
-                { label: '~1200m', color: '#fb923c' },
-                { label: '1200m+', color: '#f87171' },
-                // 고도 기록이 없는 코스. 회색이 뜻 없는 색으로 보이지 않게 범례에 남긴다.
-                { label: '고도 미상', color: UNKNOWN_DIFFICULTY_COLOR },
-              ].map((item) => (
-                <li key={item.label} className="flex items-center gap-2">
-                  <span className="h-1 w-5 rounded-full" style={{ backgroundColor: item.color }} />
-                  <span>{item.label}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <MapLegend showParks={showParks} npStats={npStats} hasUserTrack={userTrack !== null} />
         </main>
       </div>
     </div>

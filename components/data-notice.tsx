@@ -163,6 +163,10 @@ function DisclaimerSection() {
         </li>
         <li>· 거리·소요시간·고도는 기록에서 계산한 값이라 실제와 차이가 있습니다.</li>
         <li>
+          · 올린 GPX·KML 파일은 <strong className="text-foreground">브라우저에서만 처리</strong>되며
+          서버로 전송되지 않습니다. 최근 트랙 1개만 이 브라우저에 남습니다.
+        </li>
+        <li>
           · 이 앱은 <strong className="text-foreground">참고용</strong>입니다. 산행 전에는 아래 공식
           창구에서 현재 통제 정보를 확인하세요.
         </li>
