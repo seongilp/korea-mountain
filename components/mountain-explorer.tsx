@@ -370,7 +370,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
     <div className="flex h-dvh flex-col">
       <header className="border-border flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-3">
         <Mountain className="text-primary size-5" aria-hidden />
-        <h1 className="text-base font-bold">산행</h1>
+        <h1 className="text-base font-bold">산행나우</h1>
         <div className="border-border flex overflow-hidden rounded-md border text-xs">
           {(
             [
