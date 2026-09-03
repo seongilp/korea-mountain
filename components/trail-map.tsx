@@ -10,6 +10,7 @@ import {
   POI_CATEGORIES,
   POI_CATEGORY_META,
   POI_CATEGORY_PROPERTY,
+  POI_MIN_ZOOM,
   type PoiCategory,
 } from '@/lib/poi-category';
 import { UNKNOWN_DIFFICULTY_COLOR } from '@/lib/trail-geometry';
@@ -35,6 +36,32 @@ const POI_SOURCE = 'pois';
 const WEATHER_SOURCE = 'weather';
 const NP_SOURCE = 'np-trails';
 const AMBIENT_SOURCE = 'ambient-courses';
+const AMBIENT_POI_SOURCE = 'ambient-pois';
+
+/*
+ * POI 점은 두 레이어가 같은 모양이다. 선택 산(poi-dot)은 코스 필터가 걸리고 주변 산
+ * (ambient-poi-dot)은 카테고리 필터만 걸린다는 차이뿐이라 paint 는 하나로 둔다.
+ */
+const POI_LAYERS = ['ambient-poi-dot', 'poi-dot'] as const;
+const POI_DOT_PAINT: maplibregl.CircleLayerSpecification['paint'] = {
+  'circle-radius': [
+    'interpolate',
+    ['linear'],
+    ['zoom'],
+    12,
+    ['case', ['==', ['get', POI_CATEGORY_PROPERTY], 'danger'], 3.5, 2.5],
+    16,
+    ['case', ['==', ['get', POI_CATEGORY_PROPERTY], 'danger'], 8, 5.5],
+  ],
+  'circle-color': [
+    'match',
+    ['get', POI_CATEGORY_PROPERTY],
+    ...POI_CATEGORIES.flatMap((c) => [c, POI_CATEGORY_META[c].color]),
+    POI_CATEGORY_META.other.color,
+  ] as unknown as maplibregl.ExpressionSpecification,
+  'circle-stroke-width': 0.8,
+  'circle-stroke-color': '#0b0f0d',
+};
 
 export interface WeatherStation {
   obsid: number;
@@ -58,6 +85,8 @@ interface TrailMapProps {
   npTrails: GeoJSON.FeatureCollection | null;
   /** 선택과 무관하게 화면 안에 깔아두는 등산로. */
   ambient: GeoJSON.FeatureCollection | null;
+  /** 선택과 무관하게 화면 안에 깔아두는 POI. 선택한 산의 것은 이미 빠져 있다(중복 방지). */
+  ambientPois: GeoJSON.FeatureCollection | null;
   /** 선택된 개별 코스의 코스ID. 없으면 null. */
   selectedCourseId: string | null;
   onSelectCourse: (courseId: string | null) => void;
@@ -92,6 +121,7 @@ export function TrailMap({
   showWeather,
   npTrails,
   ambient,
+  ambientPois,
   compact = false,
   onViewportChange,
   selectedCourseId,
@@ -136,10 +166,11 @@ export function TrailMap({
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
 
     map.on('load', () => {
-      map.addSource(PEAK_SOURCE, { type: 'geojson', data: EMPTY, promoteId: 'name' });
+      map.addSource(PEAK_SOURCE, { type: 'geojson', data: EMPTY, promoteId: 'key' });
       // 코스 단위 선택 표시를 하려면 안정적인 feature id 가 필요하다.
       map.addSource(COURSE_SOURCE, { type: 'geojson', data: EMPTY, promoteId: '코스ID' });
       map.addSource(POI_SOURCE, { type: 'geojson', data: EMPTY });
+      map.addSource(AMBIENT_POI_SOURCE, { type: 'geojson', data: EMPTY });
 
       // 국립공원 탐방로. 통제 구간은 붉은 파선으로 구분한다.
       map.addSource(NP_SOURCE, { type: 'geojson', data: EMPTY });
@@ -251,32 +282,29 @@ export function TrailMap({
 
       // 코스 POI. 색은 lib/poi-category.ts 의 카테고리 표를 그대로 쓴다.
       // 원본 `종류` 는 POI 마다 유일한 코드라 여기서는 안 본다. 위험 지점은 한 단계 크게 그린다.
+      // 주변 산 POI 를 먼저 깔고 선택 산 POI 를 위에 올린다. 화면에 여러 산이면 수천 개라
+      // 줌 12 아래에서는 아예 안 그린다.
+      // 필터 effect 가 붙기 전 한 프레임이라도 전부 그리지 않게 기본값을 미리 건다.
+      const defaultPoiFilter: maplibregl.FilterSpecification = [
+        'in',
+        ['get', POI_CATEGORY_PROPERTY],
+        ['literal', [...DEFAULT_VISIBLE_CATEGORIES]],
+      ];
+      map.addLayer({
+        id: 'ambient-poi-dot',
+        type: 'circle',
+        source: AMBIENT_POI_SOURCE,
+        minzoom: POI_MIN_ZOOM,
+        filter: defaultPoiFilter,
+        paint: POI_DOT_PAINT,
+      });
       map.addLayer({
         id: 'poi-dot',
         type: 'circle',
         source: POI_SOURCE,
-        minzoom: 12,
-        // 필터 effect 가 붙기 전 한 프레임이라도 전부 그리지 않게 기본값을 미리 건다.
-        filter: ['in', ['get', POI_CATEGORY_PROPERTY], ['literal', [...DEFAULT_VISIBLE_CATEGORIES]]],
-        paint: {
-          'circle-radius': [
-            'interpolate',
-            ['linear'],
-            ['zoom'],
-            12,
-            ['case', ['==', ['get', POI_CATEGORY_PROPERTY], 'danger'], 3.5, 2.5],
-            16,
-            ['case', ['==', ['get', POI_CATEGORY_PROPERTY], 'danger'], 8, 5.5],
-          ],
-          'circle-color': [
-            'match',
-            ['get', POI_CATEGORY_PROPERTY],
-            ...POI_CATEGORIES.flatMap((c) => [c, POI_CATEGORY_META[c].color]),
-            POI_CATEGORY_META.other.color,
-          ] as unknown as maplibregl.ExpressionSpecification,
-          'circle-stroke-width': 0.8,
-          'circle-stroke-color': '#0b0f0d',
-        },
+        minzoom: POI_MIN_ZOOM,
+        filter: defaultPoiFilter,
+        paint: POI_DOT_PAINT,
       });
 
       map.addSource(WEATHER_SOURCE, { type: 'geojson', data: EMPTY });
@@ -394,14 +422,17 @@ export function TrailMap({
     });
 
     // POI 는 탭으로 연다. 모바일에는 hover 가 없고, 점이 작아 hover 팝업은 자꾸 깜빡인다.
+    // 선택 산이든 주변 산이든 POI 팝업은 같다.
     const poiPopup = new maplibregl.Popup({ closeButton: true, offset: 8, maxWidth: '240px' });
-    map.on('mouseenter', 'poi-dot', () => {
-      map.getCanvas().style.cursor = 'pointer';
-    });
-    map.on('mouseleave', 'poi-dot', () => {
-      map.getCanvas().style.cursor = '';
-    });
-    map.on('click', 'poi-dot', (event) => {
+    for (const layer of POI_LAYERS) {
+      map.on('mouseenter', layer, () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', layer, () => {
+        map.getCanvas().style.cursor = '';
+      });
+    }
+    const openPoiPopup = (event: maplibregl.MapLayerMouseEvent) => {
       const feature = event.features?.[0];
       const p = feature?.properties as Record<string, unknown> | undefined;
       if (!p || feature?.geometry.type !== 'Point') return;
@@ -418,7 +449,8 @@ export function TrailMap({
             `<span style="color:#555">${meta.label}</span></div>`,
         )
         .addTo(map);
-    });
+    };
+    for (const layer of POI_LAYERS) map.on('click', layer, openPoiPopup);
 
     const notifyViewport = () => {
       /*
@@ -596,6 +628,18 @@ export function TrailMap({
     else map.once('idle', apply);
   }, [ambient]);
 
+  /* 주변 POI. 코스와 effect 를 나눠 두어야 산을 고를 때 코스 컬렉션까지 다시 올리지 않는다. */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const apply = () => {
+      const source = map.getSource(AMBIENT_POI_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      source?.setData(ambientPois ?? EMPTY);
+    };
+    if (loadedRef.current) apply();
+    else map.once('idle', apply);
+  }, [ambientPois]);
+
   /* 개별 코스 선택 강조 */
   useEffect(() => {
     const map = mapRef.current;
@@ -619,17 +663,21 @@ export function TrailMap({
     else map.once('idle', apply);
   }, [selectedCourseId, bundle]);
 
-  /* POI 카테고리 필터. 코스를 하나 고르면 그 코스의 POI 만 남긴다 — 북한산은 1,768개다. */
+  /*
+   * POI 카테고리 필터. 코스를 하나 고르면 그 코스의 POI 만 남긴다 — 북한산은 1,768개다.
+   * 코스 필터는 선택 산(poi-dot)에만 건다. 주변 산 POI 는 고른 코스와 무관하니 카테고리만 본다.
+   */
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const apply = () => {
-      if (!map.getLayer('poi-dot')) return;
+      if (!map.getLayer('poi-dot') || !map.getLayer('ambient-poi-dot')) return;
       const byCategory: maplibregl.FilterSpecification = [
         'in',
         ['get', POI_CATEGORY_PROPERTY],
         ['literal', [...visiblePoiCategories]],
       ];
+      map.setFilter('ambient-poi-dot', byCategory);
       map.setFilter(
         'poi-dot',
         selectedCourseId

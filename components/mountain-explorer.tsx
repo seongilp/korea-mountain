@@ -27,6 +27,7 @@ import { buildProfile } from '@/lib/elevation';
 import {
   DEFAULT_VISIBLE_CATEGORIES,
   POI_CATEGORY_META,
+  POI_MIN_ZOOM,
   withPoiCategories,
   type PoiCategory,
 } from '@/lib/poi-category';
@@ -72,6 +73,12 @@ const AMBIENT_MAX_MOUNTAINS = 40;
 
 type Dataset = 'myeongsan' | 'peaks';
 
+/** 화면 안 한 산의 POI. key 는 mountainKey 와 같아 선택 산을 골라낼 때 쓴다. */
+interface AmbientPoiPart {
+  key: string;
+  features: GeoJSON.Feature[];
+}
+
 export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }) {
   const [dataset, setDataset] = useState<Dataset>('myeongsan');
   const [peaks, setPeaks] = useState<MountainSummary[] | null>(null);
@@ -110,7 +117,14 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
     zoom: number;
   } | null>(null);
   const [ambient, setAmbient] = useState<GeoJSON.FeatureCollection | null>(null);
+  /*
+   * 화면 안 산들의 POI 를 산별로 들고 있는다. 코스와 한 컬렉션으로 묶지 않는 이유는
+   * 산을 고를 때 그 산 것만 빼야 하는데, 그때마다 코스 컬렉션까지 새로 만들면 maplibre 가
+   * 수천 코스를 다시 파싱하기 때문이다.
+   */
+  const [ambientPoiParts, setAmbientPoiParts] = useState<AmbientPoiPart[]>([]);
   // 이미 받은 번들을 재사용한다. 지도를 움직일 때마다 다시 받으면 안 된다.
+  // 캐시에 넣는 시점에 카테고리를 붙여 두므로 이후에는 재계산하지 않는다.
   const bundleCache = useRef(new Map<string, MountainBundle>());
 
   const [npStats, setNpStats] = useState<{
@@ -171,6 +185,12 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
       try {
         const target = source.find((m) => mountainKey(m) === selected);
         if (!target) return;
+        // 주변 레이어가 이미 받아 둔 산이면(카테고리도 붙어 있다) 다시 받지 않는다.
+        const cached = bundleCache.current.get(selected);
+        if (cached) {
+          setBundle(cached);
+          return;
+        }
         const url =
           dataset === 'peaks' ? peakCourseUrl(target.name, target.file) : courseBundleUrl(target.name);
         const response = await fetch(url, { signal: controller.signal });
@@ -274,6 +294,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
     const load = async () => {
       if (!view || view.zoom < AMBIENT_MIN_ZOOM) {
         setAmbient(null);
+        setAmbientPoiParts([]);
         return;
       }
 
@@ -284,6 +305,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
 
       if (inView.length === 0) {
         setAmbient(null);
+        setAmbientPoiParts([]);
         return;
       }
 
@@ -300,7 +322,12 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
                 : courseBundleUrl(mountain.name);
             const response = await fetch(url);
             if (!response.ok) return;
-            cache.set(key, (await response.json()) as MountainBundle);
+            const body = (await response.json()) as MountainBundle;
+            if (!Array.isArray(body?.courses?.features) || !Array.isArray(body?.pois?.features)) {
+              return;
+            }
+            // 정적 번들에는 카테고리가 없다. 캐시에 넣기 전에 한 번만 붙인다.
+            cache.set(key, { ...body, pois: withPoiCategories(body.pois) });
           } catch {
             // 개별 산 실패는 조용히 넘긴다. 배경 레이어라 하나 빠져도 화면이 성립한다.
           }
@@ -312,6 +339,13 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
         (mountain) => cache.get(mountainKey(mountain))?.courses.features ?? [],
       );
       setAmbient({ type: 'FeatureCollection', features });
+      setAmbientPoiParts(
+        inView.flatMap((mountain) => {
+          const key = mountainKey(mountain);
+          const pois = cache.get(key)?.pois.features;
+          return pois && pois.length > 0 ? [{ key, features: pois }] : [];
+        }),
+      );
     };
 
     void load();
@@ -334,9 +368,21 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
     // 이전 데이터셋에서 난 오류 배너가 남아 새 탭에서도 실패한 것처럼 보이는 걸 막는다.
     setError(null);
     setAmbient(null);
+    setAmbientPoiParts([]);
     setSelectedCourseId(null);
     bundleCache.current.clear();
   }, []);
+
+  /*
+   * 지도에 넘길 주변 POI. 선택한 산은 뺀다 — 그 산의 POI 는 선택 번들 쪽(코스 필터가 걸리는
+   * 소스)에서 그리므로, 여기 남겨 두면 같은 점이 두 번 찍히고 코스 필터도 무력해진다.
+   * 선택 산 밖의 다른 산 POI 는 그대로 남아 계속 보인다.
+   */
+  const ambientPois = useMemo<GeoJSON.FeatureCollection | null>(() => {
+    const parts = ambientPoiParts.filter((part) => part.key !== selected);
+    if (parts.length === 0) return null;
+    return { type: 'FeatureCollection', features: parts.flatMap((part) => part.features) };
+  }, [ambientPoiParts, selected]);
 
   const selectedCourse = useMemo(() => {
     if (!bundle || !selectedCourseId) return null;
@@ -611,6 +657,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
               showWeather={showWeather}
               npTrails={showParks ? npTrails : null}
               ambient={ambient}
+              ambientPois={ambientPois}
               onViewportChange={setView}
               compact={isCompact}
               selectedCourseId={selectedCourseId}
@@ -619,8 +666,8 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
             />
           </div>
 
-          {/* POI 는 산을 골라야 있고 줌 12 부터 그려진다. 그 전엔 칩을 띄울 이유가 없다. */}
-          {bundle && !vworld && (
+          {/* POI 는 줌 12 부터 그려진다. 산을 골랐거나 화면 안 산의 POI 가 보일 때만 칩을 띄운다. */}
+          {(bundle || (ambientPois && view && view.zoom >= POI_MIN_ZOOM)) && !vworld && (
             <div
               className={cn(
                 'bg-card/85 border-border absolute z-10 rounded-md border px-2 py-1.5 backdrop-blur',

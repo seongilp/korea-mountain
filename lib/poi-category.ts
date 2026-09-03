@@ -131,6 +131,12 @@ export function categorizePoi(name: unknown): PoiCategory {
 export const POI_CATEGORY_PROPERTY = 'category';
 
 /**
+ * 지도에 POI 점을 그리기 시작하는 줌. 이 아래에서는 산 하나에 수백 개가 뭉쳐 점만 번진다.
+ * 지도 레이어(minzoom)와 필터 칩을 띄우는 조건이 같은 값을 봐야 해서 여기 둔다.
+ */
+export const POI_MIN_ZOOM = 12;
+
+/**
  * POI FeatureCollection 의 각 feature 에 `category` 를 붙인 새 컬렉션.
  * 원본은 건드리지 않는다 — 번들은 정적 파일이고 캐시로도 공유된다.
  */
