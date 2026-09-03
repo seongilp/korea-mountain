@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import type { ElevationProfile as ElevationProfileData } from '@/lib/elevation';
 import { peakLabel, type MountainBundle, type MountainSummary } from '@/lib/mountains';
+import { formatCourseSummary, summarizeCourse } from '@/lib/poi-category';
 
 /**
  * 코스ID(`설악산_0000000005`)는 사람이 못 읽는다. 번들 안에서의 순번으로 바꿔 보여준다.
@@ -69,6 +70,8 @@ export function MountainStats({
               if (!id) return null;
               const km = feature.properties?.['거리_km'] as number | undefined;
               const gain = feature.properties?.['누적상승_m'] as number | undefined;
+              // 코스에 화장실·쉼터·식수·조망·위험이 몇 개 있는지 한 줄로. 전부 0 이면 줄을 뺀다.
+              const summary = formatCourseSummary(summarizeCourse(bundle.pois, id));
               return (
                 <li key={id}>
                   <button
@@ -76,17 +79,22 @@ export function MountainStats({
                     onClick={() => onSelectCourse(id === selectedCourseId ? null : id)}
                     aria-current={id === selectedCourseId}
                     className={cn(
-                      'hover:bg-accent/60 flex w-full items-baseline gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors',
+                      'hover:bg-accent/60 flex w-full flex-col gap-0.5 rounded px-1.5 py-1 text-left text-xs transition-colors',
                       id === selectedCourseId && 'bg-accent',
                     )}
                   >
-                    <span className="min-w-0 flex-1 truncate">{courseLabel(bundle, id)}</span>
-                    <span className="text-muted-foreground shrink-0 tabular-nums">
-                      {km?.toFixed(1) ?? '—'}km
+                    <span className="flex w-full items-baseline gap-2">
+                      <span className="min-w-0 flex-1 truncate">{courseLabel(bundle, id)}</span>
+                      <span className="text-muted-foreground shrink-0 tabular-nums">
+                        {km?.toFixed(1) ?? '—'}km
+                      </span>
+                      <span className="text-muted-foreground shrink-0 tabular-nums">
+                        ↗{gain ?? '—'}m
+                      </span>
                     </span>
-                    <span className="text-muted-foreground shrink-0 tabular-nums">
-                      ↗{gain ?? '—'}m
-                    </span>
+                    {summary && (
+                      <span className="text-muted-foreground block truncate text-[11px]">{summary}</span>
+                    )}
                   </button>
                 </li>
               );

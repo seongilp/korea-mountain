@@ -20,9 +20,16 @@ import { CourseDetail, MountainStats } from '@/components/mountain-detail';
 import { Button } from '@/components/ui/button';
 import { DataNotice } from '@/components/data-notice';
 import { ElevationDot, ElevationLegend } from '@/components/elevation-legend';
+import { PoiFilter } from '@/components/poi-filter';
 import { mountainNote } from '@/lib/mountain-notes';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { buildProfile } from '@/lib/elevation';
+import {
+  DEFAULT_VISIBLE_CATEGORIES,
+  POI_CATEGORY_META,
+  withPoiCategories,
+  type PoiCategory,
+} from '@/lib/poi-category';
 import { UNKNOWN_DIFFICULTY_COLOR } from '@/lib/trail-geometry';
 import { cn } from '@/lib/utils';
 import { useIsCompact } from '@/lib/use-media-query';
@@ -84,6 +91,9 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
    */
   const [sheetSnap, setSheetSnap] = useState<SheetSnap>('peek');
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  // 지도에 그릴 POI 카테고리. 기본 7개만 켜고, '전체' 를 펼치면 나머지 칩이 드러난다.
+  const [poiVisible, setPoiVisible] = useState<readonly PoiCategory[]>(DEFAULT_VISIBLE_CATEGORIES);
+  const [poiExpanded, setPoiExpanded] = useState(false);
   // 위성 영상만으로는 어느 시군구인지 분간이 안 된다. VW 모드에서만 의미가 있다.
   const [vworldBoundary, setVworldBoundary] = useState(true);
   const [vworld, setVworld] = useState(false);
@@ -166,7 +176,13 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
         const response = await fetch(url, { signal: controller.signal });
         if (!response.ok) throw new Error(`코스 조회 실패 (HTTP ${response.status})`);
         const body = (await response.json()) as MountainBundle;
-        if (!controller.signal.aborted) setBundle(body);
+        if (!Array.isArray(body?.courses?.features) || !Array.isArray(body?.pois?.features)) {
+          throw new Error('코스 데이터 형식이 맞지 않습니다');
+        }
+        // 정적 번들에는 카테고리가 없다. 받는 자리에서 붙인다(원본은 새 객체로 남긴다).
+        if (!controller.signal.aborted) {
+          setBundle({ ...body, pois: withPoiCategories(body.pois) });
+        }
       } catch (cause) {
         if (!controller.signal.aborted) {
           setError(cause instanceof Error ? cause.message : '코스 조회 실패');
@@ -349,6 +365,22 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
   const handleSelectCourse = useCallback((id: string | null) => {
     setSelectedCourseId(id);
     if (id) setSheetSnap((snap) => (snap === 'peek' ? 'half' : snap));
+  }, []);
+
+  const handleTogglePoi = useCallback((category: PoiCategory) => {
+    setPoiVisible((current) =>
+      current.includes(category) ? current.filter((c) => c !== category) : [...current, category],
+    );
+  }, []);
+
+  // 접으면 칩이 사라진 카테고리가 지도에 남지 않게 기본 표시 밖의 것은 같이 끈다.
+  const handleTogglePoiExpanded = useCallback(() => {
+    setPoiExpanded((expanded) => {
+      if (expanded) {
+        setPoiVisible((current) => current.filter((c) => POI_CATEGORY_META[c].defaultVisible));
+      }
+      return !expanded;
+    });
   }, []);
 
   // 3D(브이월드)와 2D(maplibre)는 배타적이다. 둘을 겹쳐 놓으면 어느 쪽을 보는지 알 수 없다.
@@ -583,8 +615,27 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
               compact={isCompact}
               selectedCourseId={selectedCourseId}
               onSelectCourse={handleSelectCourse}
+              visiblePoiCategories={poiVisible}
             />
           </div>
+
+          {/* POI 는 산을 골라야 있고 줌 12 부터 그려진다. 그 전엔 칩을 띄울 이유가 없다. */}
+          {bundle && !vworld && (
+            <div
+              className={cn(
+                'bg-card/85 border-border absolute z-10 rounded-md border px-2 py-1.5 backdrop-blur',
+                // 좁은 화면은 고도 범례 바로 아래, 데스크톱은 산 패널 오른쪽 옆.
+                isCompact ? 'top-12 right-14 left-3' : 'top-4 left-72 max-w-md',
+              )}
+            >
+              <PoiFilter
+                visible={poiVisible}
+                expanded={poiExpanded}
+                onToggle={handleTogglePoi}
+                onToggleExpanded={handleTogglePoiExpanded}
+              />
+            </div>
+          )}
 
           {vworldMounted && (
             <div className={cn('absolute inset-0', !vworld && 'hidden')}>

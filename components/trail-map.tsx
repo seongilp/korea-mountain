@@ -5,6 +5,13 @@ import { useEffect, useRef } from 'react';
 
 import { SNAP_RATIO } from '@/components/bottom-sheet';
 import { elevationStepExpression } from '@/lib/elevation-color';
+import {
+  DEFAULT_VISIBLE_CATEGORIES,
+  POI_CATEGORIES,
+  POI_CATEGORY_META,
+  POI_CATEGORY_PROPERTY,
+  type PoiCategory,
+} from '@/lib/poi-category';
 import { UNKNOWN_DIFFICULTY_COLOR } from '@/lib/trail-geometry';
 import { mountainKey, type MountainBundle, type MountainSummary } from '@/lib/mountains';
 
@@ -54,6 +61,8 @@ interface TrailMapProps {
   /** 선택된 개별 코스의 코스ID. 없으면 null. */
   selectedCourseId: string | null;
   onSelectCourse: (courseId: string | null) => void;
+  /** 지도에 그릴 POI 카테고리. 비어 있으면 POI 를 전부 숨긴다. */
+  visiblePoiCategories: readonly PoiCategory[];
   /** 지도가 멈출 때 현재 보이는 영역을 알려준다. 뷰포트 기준 지연 로딩에 쓴다. */
   onViewportChange: (view: { bounds: [number, number, number, number]; zoom: number }) => void;
   /**
@@ -64,6 +73,15 @@ interface TrailMapProps {
 }
 
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
+
+/** 팝업은 setHTML 로 그리므로 데이터에서 온 문자열은 이스케이프한다. */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
 export function TrailMap({
   mountains,
@@ -78,6 +96,7 @@ export function TrailMap({
   onViewportChange,
   selectedCourseId,
   onSelectCourse,
+  visiblePoiCategories,
 }: TrailMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -150,7 +169,9 @@ export function TrailMap({
         },
       });
 
-      // 주변 등산로. 선택하지 않아도 화면에 깔린다. 선택한 코스와 구분되게 흐리고 얇다.
+      // 주변 등산로. 선택하지 않아도 화면에 깔린다. 선택한 코스와 구분되게 얇다.
+      // 멀리서는 슬레이트로 흐리게, 줌 13 부터는 주황 파선으로 바뀐다 — 슬레이트 그대로 두면
+      // 베이스맵 도로(같은 회색)와 구분이 안 돼서 가까이 가도 "등산로가 없어 보인다"(실기기 확인).
       map.addSource(AMBIENT_SOURCE, { type: 'geojson', data: EMPTY });
       map.addLayer({
         id: 'ambient-line',
@@ -158,9 +179,10 @@ export function TrailMap({
         source: AMBIENT_SOURCE,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#94a3b8',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 13, 1.4, 16, 2.4],
-          'line-opacity': 0.55,
+          'line-color': ['interpolate', ['linear'], ['zoom'], 12, '#94a3b8', 13.5, '#fb923c'],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 13, 1.6, 16, 3],
+          'line-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0.55, 13.5, 0.9],
+          'line-dasharray': [2, 1.5],
         },
       });
 
@@ -227,27 +249,32 @@ export function TrailMap({
         },
       });
 
+      // 코스 POI. 색은 lib/poi-category.ts 의 카테고리 표를 그대로 쓴다.
+      // 원본 `종류` 는 POI 마다 유일한 코드라 여기서는 안 본다. 위험 지점은 한 단계 크게 그린다.
       map.addLayer({
         id: 'poi-dot',
         type: 'circle',
         source: POI_SOURCE,
         minzoom: 12,
+        // 필터 effect 가 붙기 전 한 프레임이라도 전부 그리지 않게 기본값을 미리 건다.
+        filter: ['in', ['get', POI_CATEGORY_PROPERTY], ['literal', [...DEFAULT_VISIBLE_CATEGORIES]]],
         paint: {
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 2, 16, 5],
+          'circle-radius': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            12,
+            ['case', ['==', ['get', POI_CATEGORY_PROPERTY], 'danger'], 3.5, 2.5],
+            16,
+            ['case', ['==', ['get', POI_CATEGORY_PROPERTY], 'danger'], 8, 5.5],
+          ],
           'circle-color': [
             'match',
-            ['get', '종류'],
-            '갈림길',
-            '#38bdf8',
-            '쉼터',
-            '#a78bfa',
-            '조망점',
-            '#fbbf24',
-            '화장실',
-            '#94a3b8',
-            '#64748b',
-          ],
-          'circle-stroke-width': 0.5,
+            ['get', POI_CATEGORY_PROPERTY],
+            ...POI_CATEGORIES.flatMap((c) => [c, POI_CATEGORY_META[c].color]),
+            POI_CATEGORY_META.other.color,
+          ] as unknown as maplibregl.ExpressionSpecification,
+          'circle-stroke-width': 0.8,
           'circle-stroke-color': '#0b0f0d',
         },
       });
@@ -366,6 +393,33 @@ export function TrailMap({
       if (id) onSelectCourseRef.current(id);
     });
 
+    // POI 는 탭으로 연다. 모바일에는 hover 가 없고, 점이 작아 hover 팝업은 자꾸 깜빡인다.
+    const poiPopup = new maplibregl.Popup({ closeButton: true, offset: 8, maxWidth: '240px' });
+    map.on('mouseenter', 'poi-dot', () => {
+      map.getCanvas().style.cursor = 'pointer';
+    });
+    map.on('mouseleave', 'poi-dot', () => {
+      map.getCanvas().style.cursor = '';
+    });
+    map.on('click', 'poi-dot', (event) => {
+      const feature = event.features?.[0];
+      const p = feature?.properties as Record<string, unknown> | undefined;
+      if (!p || feature?.geometry.type !== 'Point') return;
+      const category = (p[POI_CATEGORY_PROPERTY] as PoiCategory | undefined) ?? 'other';
+      const meta = POI_CATEGORY_META[category] ?? POI_CATEGORY_META.other;
+      poiPopup
+        // 클릭 지점이 아니라 점의 실제 좌표에 붙여야 확대해도 안 흔들린다.
+        .setLngLat(feature.geometry.coordinates as [number, number])
+        .setHTML(
+          `<div style="color:#111;font-size:12px">` +
+            `<b>${escapeHtml(String(p['이름'] ?? ''))}</b><br/>` +
+            `<span style="display:inline-block;width:8px;height:8px;border-radius:9999px;` +
+            `background:${meta.color};border:1px solid #333;margin-right:4px"></span>` +
+            `<span style="color:#555">${meta.label}</span></div>`,
+        )
+        .addTo(map);
+    });
+
     const notifyViewport = () => {
       /*
        * 3D 로 전환하면 이 지도는 CSS 로 숨겨져 컨테이너가 0x0 이 되고, 그때 maplibre 가
@@ -445,6 +499,7 @@ export function TrailMap({
     return () => {
       trailPopup.remove();
       weatherPopup.remove();
+      poiPopup.remove();
       observer.disconnect();
       map.remove();
       mapRef.current = null;
@@ -563,6 +618,28 @@ export function TrailMap({
     if (loadedRef.current) apply();
     else map.once('idle', apply);
   }, [selectedCourseId, bundle]);
+
+  /* POI 카테고리 필터. 코스를 하나 고르면 그 코스의 POI 만 남긴다 — 북한산은 1,768개다. */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const apply = () => {
+      if (!map.getLayer('poi-dot')) return;
+      const byCategory: maplibregl.FilterSpecification = [
+        'in',
+        ['get', POI_CATEGORY_PROPERTY],
+        ['literal', [...visiblePoiCategories]],
+      ];
+      map.setFilter(
+        'poi-dot',
+        selectedCourseId
+          ? ['all', byCategory, ['==', ['get', '코스ID'], selectedCourseId]]
+          : byCategory,
+      );
+    };
+    if (loadedRef.current) apply();
+    else map.once('idle', apply);
+  }, [visiblePoiCategories, selectedCourseId]);
 
   /* 국립공원 탐방로 레이어 */
   useEffect(() => {
