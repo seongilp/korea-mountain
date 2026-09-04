@@ -42,7 +42,7 @@ http://localhost:3000 을 연다.
 | 이름 | 없으면 |
 |---|---|
 | `DATA_GO_KR_KEY` | 산악기상·산불위험 API 라우트가 500 |
-| `NEXT_PUBLIC_VWORLD_KEY` | 브이월드 배경지도 버튼만 잠김 |
+| `NEXT_PUBLIC_VWORLD_KEY` | 3D 배경지도 버튼이 잠기고, 2D 베이스맵도 한글 지명이 빈약한 CARTO 로 폴백 (브이월드 WMTS 쿼터/도메인 제한에 의존) |
 
 ## 기술 스택
 

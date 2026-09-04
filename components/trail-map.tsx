@@ -4,6 +4,7 @@ import maplibregl, { type Map as MapLibreMap } from 'maplibre-gl';
 import { useEffect, useRef } from 'react';
 
 import { SNAP_RATIO } from '@/components/bottom-sheet';
+import { resolveBasemapStyle } from '@/lib/basemap';
 import { elevationStepExpression } from '@/lib/elevation-color';
 import {
   DEFAULT_VISIBLE_CATEGORIES,
@@ -21,10 +22,9 @@ import { mountainKey, type MountainBundle, type MountainSummary } from '@/lib/mo
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 /**
- * 지형 음영이 들어간 무료 베이스맵. 등산 앱이라 기복이 보이는 스타일이 필요하다.
- * 키가 필요 없는 CARTO 다크 위에 지형 음영 레이어를 얹는다.
+ * 2D 베이스맵. 브이월드 키가 있으면 한글 지명이 풍부한 midnight WMTS 래스터,
+ * 없으면 CARTO dark-matter 로 폴백한다. 실제 선택은 lib/basemap.ts 에서 한다.
  */
-const BASEMAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
 /** 남한 전체를 감싸는 대략적 경계. */
 const KOREA_BOUNDS: [[number, number], [number, number]] = [
@@ -172,7 +172,7 @@ export function TrailMap({
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: BASEMAP_STYLE,
+      style: resolveBasemapStyle(process.env.NEXT_PUBLIC_VWORLD_KEY ?? ''),
       bounds: KOREA_BOUNDS,
       fitBoundsOptions: { padding: 32 },
       minZoom: 5,
