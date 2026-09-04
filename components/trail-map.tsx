@@ -89,6 +89,12 @@ interface TrailMapProps {
   ambient: GeoJSON.FeatureCollection | null;
   /** 선택과 무관하게 화면 안에 깔아두는 POI. 선택한 산의 것은 이미 빠져 있다(중복 방지). */
   ambientPois: GeoJSON.FeatureCollection | null;
+  /**
+   * 선택한 산의 좌표. vworld-map 의 focus 와 같은 모양이다. 번들이 아직 도착하지 않아도
+   * 즉시 화면을 옮기는 용도라 코스 geometry 와 분리해 둔다. 선택을 해제하면 null 이 되고
+   * 그때는 화면을 건드리지 않는다(현재 보던 곳을 유지).
+   */
+  focus: { lon: number; lat: number } | null;
   /** 선택된 개별 코스의 코스ID. 없으면 null. */
   selectedCourseId: string | null;
   onSelectCourse: (courseId: string | null) => void;
@@ -125,6 +131,7 @@ export function TrailMap({
   mountains,
   bundle,
   selected,
+  focus,
   onSelect,
   weather,
   showWeather,
@@ -584,6 +591,35 @@ export function TrailMap({
     if (loadedRef.current) apply();
     else map.once('idle', apply);
   }, [mountains]);
+
+  /*
+   * 선택 즉시 화면 이동. 번들 fetch 가 끝나기 전에도 산 위치는 이미 알고 있으므로
+   * 그 좌표로 먼저 날아간다 — 큰 번들(금정산 1.2MB 등)을 받는 수 초 동안 이전 산에
+   * 머무는 문제(사용자 보고)가 이걸로 없어진다. 아래 "선택된 산의 코스/화면 이동" effect
+   * 보다 반드시 먼저 선언해야 한다: 캐시 히트라 focus 와 bundle 이 같은 렌더에서 함께
+   * 바뀌면, 나중에 선언된 effect 가 나중에 실행돼 이 flyTo 를 fitBounds 로 덮어써서
+   * 화면이 한 번만 움직인다(더 정확한 fitBounds 가 이겨야 한다).
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focus) return;
+
+    const apply = () => {
+      const bottom = compact
+        ? Math.round(map.getContainer().clientHeight * SNAP_RATIO.peek) + 60
+        : 60;
+      map.flyTo({
+        center: [focus.lon, focus.lat],
+        // 이미 그 산보다 가까이 줌인해 있었다면 굳이 빼지 않는다.
+        zoom: Math.max(map.getZoom(), 12),
+        duration: 600,
+        padding: { top: 60, left: 60, right: 60, bottom },
+      });
+    };
+
+    if (loadedRef.current) apply();
+    else map.once('idle', apply);
+  }, [focus, compact]);
 
   /* 선택된 산의 코스/POI + 화면 이동 */
   useEffect(() => {

@@ -189,6 +189,10 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
           setBundle(cached);
           return;
         }
+        // 새 산의 번들을 받는 동안 이전 산의 코스가 화면에 남아 있으면 지도가 옮겨가지
+        // 않는다(trail-map 의 화면 이동 effect 가 bundle 변경에만 반응한다). fetch 가
+        // 끝나기 전에 비워 두면 실패해도 이전 산 것이 계속 그려지는 일도 막힌다.
+        setBundle(null);
         const url =
           dataset === 'peaks' ? peakCourseUrl(target.name, target.file) : courseBundleUrl(target.name);
         const response = await fetch(url, { signal: controller.signal });
@@ -623,6 +627,7 @@ export function MountainExplorer({ mountains }: { mountains: MountainSummary[] }
               mountains={source}
               bundle={bundle}
               selected={selected}
+              focus={vworldFocus}
               onSelect={handleSelect}
               weather={weather}
               showWeather={showWeather}
